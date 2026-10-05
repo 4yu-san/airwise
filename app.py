@@ -5,9 +5,13 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
 from sklearn.tree import DecisionTreeClassifier, export_text
-from sklearn.linear_model import LinearRegression
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, precision_recall_fscore_support, confusion_matrix, r2_score
+from sklearn.linear_model import LinearRegression, Ridge, Lasso
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
+from sklearn.feature_selection import mutual_info_regression
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import PolynomialFeatures
+from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.metrics import accuracy_score, precision_recall_fscore_support, confusion_matrix, r2_score, mean_squared_error, mean_absolute_error
 from generate_dataset import compute_aqi, category
 try:
     from dotenv import load_dotenv; load_dotenv()
@@ -20,10 +24,14 @@ app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "dev-only-secret")
 ADMIN_USER = os.getenv("ADMIN_USER", "admin")
 ADMIN_HASH = generate_password_hash(os.getenv("ADMIN_PASSWORD", "admin123"), method="pbkdf2:sha256")
+USER_NAME = os.getenv("USER_NAME", "user")
+USER_HASH = generate_password_hash(os.getenv("USER_PASSWORD", "user123"), method="pbkdf2:sha256")
 FEATURES = ["pm25", "pm10", "co", "no2", "so2", "o3", "temperature", "humidity"]
 CATS = ["Good", "Moderate", "Poor", "Very Poor", "Severe"]
 MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+MEASURES = {"aqi": "AQI", "pm25": "PM2.5", "pm10": "PM10", "no2": "NO2", "so2": "SO2", "o3": "O3", "co": "CO"}
 _cache = {}
+_state = {"source_mode": "auto", "fallback_reason": None, "loaded_at": None, "last_etl": None}   # admin-visible runtime state
 
 def db_conn():
     import pymysql
@@ -64,7 +72,10 @@ def prepare(df):
 
 def read_source():
     """Returns (raw dataframe, source label). MySQL first, CSV fallback; FORCE_CSV=1 skips MySQL."""
-    if os.getenv("FORCE_CSV") != "1":
+    _state["fallback_reason"] = None
+    if _state["source_mode"] == "csv" or os.getenv("FORCE_CSV") == "1":
+        _state["fallback_reason"] = "CSV forced " + ("by admin" if _state["source_mode"] == "csv" else "by FORCE_CSV=1")
+    else:
         try:
             conn = db_conn()
             try:
@@ -73,6 +84,7 @@ def read_source():
                 conn.close()
             return raw, "MySQL Data Warehouse"
         except Exception as e:
+            _state["fallback_reason"] = f"MySQL unavailable ({type(e).__name__}: {str(e)[:120]})"
             log.warning("MySQL unavailable (%s); using CSV fallback", type(e).__name__)
     return pd.read_csv(os.path.join("data", "air_quality.csv")), "CSV Fallback"
 
@@ -84,6 +96,7 @@ def load_df(force=False):
         raise ValueError("The warehouse has no records. Run database.sql or upload a CSV on the ETL page.")
     df = prepare(raw)
     _cache.update(df=df, source=source)
+    _state["loaded_at"] = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")
     log.info("Loaded %d rows from %s | cities=%s | %s to %s", len(df), source, df.city.nunique(),
              df.date.min().date(), df.date.max().date())
     return df
@@ -103,6 +116,11 @@ def parse_date(value, label):
     if pd.isna(d):
         raise ValueError(f"{label} date '{value}' is not valid. Use YYYY-MM-DD.")
     return d.normalize()
+
+def measure():
+    m = request.args.get("measure", "aqi").strip().lower() or "aqi"
+    if m not in MEASURES: raise ValueError(f"Unknown measure '{m}'. Choose one of: {', '.join(MEASURES)}.")
+    return m
 
 def filtered():
     df = load_df()
@@ -131,10 +149,12 @@ def filters():
     return jsonify(cities=sorted(df.city.unique()), min_date=str(df.date.min().date()), max_date=str(df.date.max().date()),
                    categories=CATS, source=_cache["source"], records=int(len(df)))
 
-def api(fn):
+def api(fn, admin=False):
     def wrap(*a, **k):
         if "user" not in session:
             return jsonify(error="Please log in first."), 401
+        if admin and session.get("role") != "admin":
+            return jsonify(error="Admin access required."), 403
         try:
             return fn(*a, **k)
         except ValueError as e:
@@ -145,23 +165,36 @@ def api(fn):
     wrap.__name__ = fn.__name__
     return wrap
 
-@app.route("/login", methods=["GET", "POST"])
-def login():
+def admin_api(fn):
+    return api(fn, admin=True)
+
+def do_login(role, name, pw_hash, template, home):
+    if session.get("role") == role:
+        return redirect(url_for(home))
     if request.method == "POST":
         u, p = request.form.get("username", "").strip(), request.form.get("password", "")
-        if u == ADMIN_USER and check_password_hash(ADMIN_HASH, p):
-            session["user"] = u
+        if u == name and check_password_hash(pw_hash, p):
+            session.clear(); session["user"] = u; session["role"] = role
             return redirect(url_for("index"))
-        return render_template("login.html", error="Wrong username or password.")
-    return render_template("login.html")
+        return render_template(template, error="Wrong username or password.")
+    return render_template(template)
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    return do_login("user", USER_NAME, USER_HASH, "login.html", "index")
+
+@app.route("/admin/login", methods=["GET", "POST"])
+def admin_login():
+    return do_login("admin", ADMIN_USER, ADMIN_HASH, "admin_login.html", "index")
 
 @app.route("/logout")
 def logout():
-    session.clear(); return redirect(url_for("login"))
+    role = session.get("role"); session.clear()
+    return redirect(url_for("admin_login" if role == "admin" else "login"))
 
 @app.route("/")
 def index():
-    return render_template("index.html") if "user" in session else redirect(url_for("login"))
+    return render_template("index.html", role=session["role"]) if "user" in session else redirect(url_for("login"))
 
 @app.route("/api/summary")
 @api
@@ -177,21 +210,26 @@ def summary():
 @app.route("/api/cities")
 @api
 def cities():
-    df = load_df(); last = df[df.date == df.date.max()]
-    out = last.groupby(["city", "latitude", "longitude"])[["aqi", "pm25", "pm10", "temperature", "humidity"]].mean().round(1).reset_index()
+    m = measure(); df = load_df(); last = df[df.date == df.date.max()]
+    out = last.groupby(["city", "latitude", "longitude"])[["aqi", "pm25", "pm10", "no2", "so2", "o3", "co", "temperature", "humidity"]].mean().round(1).reset_index()
     out["category"] = category(out.aqi).astype(str)
+    out["value"] = out[m]
+    out["share"] = ((out[m] - out[m].min()) / (out[m].max() - out[m].min())).fillna(0).round(3) if len(out) > 1 else 0.0   # 0..1 position for non-AQI map colours
     return jsonify(out.to_dict("records"))
 
 @app.route("/api/charts")
 @api
 def charts():
-    df = filtered()
+    m = measure(); df = filtered()
     if df.empty: raise ValueError(empty_message())
-    t = df.groupby("date").aqi.mean().round(1).tail(90)
-    mo = df.groupby(["year", "month"]).aqi.mean().round(1)
+    t = df.groupby("date")[m].mean().round(2)
+    ranged = bool(request.args.get("start") or request.args.get("end"))
+    if not ranged: t = t.tail(90)   # default view: most recent 90 days; an explicit date range is shown in full
+    trend_label = f"{t.index.min().date()} to {t.index.max().date()}" if ranged else "last 90 days"
+    mo = df.groupby(["year", "month"])[m].mean().round(2)
     cat = df.category.value_counts().reindex(CATS, fill_value=0)
-    city = load_df().groupby("city").aqi.mean().round(1).sort_values(ascending=False)
-    return jsonify(trend={"x": [str(d.date()) for d in t.index], "y": t.tolist()},
+    city = load_df().groupby("city")[m].mean().round(2).sort_values(ascending=False)
+    return jsonify(measure=MEASURES[m], trend={"label": trend_label, "x": [str(d.date()) for d in t.index], "y": t.tolist()},
         pollutants={"x": ["PM2.5", "PM10", "CO", "NO2", "SO2", "O3"], "y": df[["pm25","pm10","co","no2","so2","o3"]].mean().round(1).tolist()},
         categories={"x": CATS, "y": cat.tolist()}, cities={"x": city.index.tolist(), "y": city.tolist()},
         monthly={"x": [f"{MONTHS[m-1]} {y}" for y, m in mo.index], "y": mo.tolist()})
@@ -265,21 +303,68 @@ def classification():
         tree=export_text(tree, feature_names=FEATURES, decimals=1),
         importance=sorted(zip(FEATURES, tree.feature_importances_.round(3).tolist()), key=lambda t: -t[1])[:5])
 
+REG_MODELS = {
+    "Linear Regression": lambda: make_pipeline(StandardScaler(), LinearRegression()),
+    "Ridge Regression": lambda: make_pipeline(StandardScaler(), Ridge(alpha=1.0)),
+    "Lasso Regression": lambda: make_pipeline(StandardScaler(), Lasso(alpha=0.05, max_iter=5000)),
+    "Polynomial (degree 2)": lambda: make_pipeline(StandardScaler(), PolynomialFeatures(2, include_bias=False), Ridge(alpha=1.0)),
+    "Random Forest": lambda: RandomForestRegressor(n_estimators=80, max_depth=10, random_state=7, n_jobs=-1),
+    "Gradient Boosting": lambda: GradientBoostingRegressor(n_estimators=120, max_depth=3, random_state=7),
+}
+MAX_FEATURES, PARSIMONY = 4, 1.02   # a smaller feature set wins if its CV error is within 2% of the best set
+
+def regression_study():
+    """Ranks features, then for every model picks the smallest feature set that is nearly as accurate as the best
+    (5-fold CV on the training split) and scores it on a held-out test split. The best model by CV error wins."""
+    if "reg" in _cache:
+        return _cache["reg"]
+    df = load_df()
+    if len(df) < 50: raise ValueError("At least 50 records are needed to compare regression models.")
+    Xtr, Xte, ytr, yte = train_test_split(df[FEATURES], df.aqi, test_size=0.25, random_state=7)
+    mi = mutual_info_regression(Xtr, ytr, random_state=7)
+    ranked = [f for f, _ in sorted(zip(FEATURES, mi), key=lambda t: -t[1])]
+    rows = []
+    for name, make in REG_MODELS.items():
+        best = None
+        for k in range(1, MAX_FEATURES + 1):
+            cols = ranked[:k]
+            rmse = -cross_val_score(make(), Xtr[cols], ytr, cv=5, scoring="neg_root_mean_squared_error").mean()
+            if best is None or rmse < best[1] / PARSIMONY:   # only replace when clearly better than the smaller set
+                best = (cols, rmse)
+        cols, cv_rmse = best
+        model = make().fit(Xtr[cols], ytr); pred = model.predict(Xte[cols])
+        rows.append(dict(model=name, features=cols, cv_rmse=round(cv_rmse, 2), r2=round(r2_score(yte, pred), 4),
+                         rmse=round(mean_squared_error(yte, pred) ** 0.5, 2), mae=round(mean_absolute_error(yte, pred), 2), _fit=model))
+    rows.sort(key=lambda r: r["cv_rmse"])
+    winner = rows[0]
+    study = dict(rows=rows, winner=winner, ranking=[(f, round(float(m), 3)) for f, m in sorted(zip(FEATURES, mi), key=lambda t: -t[1])],
+                 defaults={f: round(float(df[f].median()), 1) for f in FEATURES}, test_size=len(Xte), train_size=len(Xtr))
+    _cache["reg"] = study
+    log.info("Regression study: winner=%s features=%s r2=%s", winner["model"], winner["features"], winner["r2"])
+    return study
+
+@app.route("/api/mining/regression")
+@api
+def regression():
+    st = regression_study(); w = st["winner"]
+    return jsonify(models=[{k: v for k, v in r.items() if k != "_fit"} for r in st["rows"]], best=w["model"], features=w["features"],
+                   defaults={f: st["defaults"][f] for f in w["features"]}, ranking=st["ranking"],
+                   train_size=st["train_size"], test_size=st["test_size"])
+
 @app.route("/api/mining/prediction", methods=["POST"])
 @api
 def prediction():
-    _, reg, Xte, _, df = models(); data = request.get_json(silent=True) or {}
+    w = regression_study()["winner"]; data = request.get_json(silent=True) or {}
     try:
-        x = [float(data[f]) for f in FEATURES]
+        x = [float(data[f]) for f in w["features"]]
     except (KeyError, TypeError, ValueError):
         raise ValueError("Enter a number for every field.")
-    if any(v < 0 for v in x) or x[0] > 1000 or x[1] > 1500: raise ValueError("Values are outside a realistic range.")
-    aqi = int(np.clip(round(reg.predict(pd.DataFrame([x], columns=FEATURES))[0]), 0, 500))
-    return jsonify(aqi=aqi, category=str(category(np.array([aqi]))[0]),
-                   r2=round(r2_score(df.aqi.loc[Xte.index], reg.predict(Xte)), 3))
+    if any(v < 0 for v in x) or any(v > 1500 for v in x): raise ValueError("Values are outside a realistic range.")
+    aqi = int(np.clip(round(w["_fit"].predict(pd.DataFrame([x], columns=w["features"]))[0]), 0, 500))
+    return jsonify(aqi=aqi, category=str(category(np.array([aqi]))[0]), r2=w["r2"], model=w["model"])
 
 @app.route("/api/etl/upload", methods=["POST"])
-@api
+@admin_api
 def etl_upload():
     f = request.files.get("file")
     if not f or not f.filename.lower().endswith(".csv"): raise ValueError("Upload a .csv file.")
@@ -316,7 +401,35 @@ def etl_upload():
         _cache.clear()
     except Exception:
         pass
+    _state["last_etl"] = {**st, "file": f.filename, "at": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"), "by": session["user"]}
+    log.info("ETL upload by %s: %s", session["user"], st)
     return jsonify(st)
+
+def status_payload():
+    df = load_df()
+    return jsonify(source=_cache["source"], mode=_state["source_mode"], records=int(len(df)), cities=int(df.city.nunique()),
+                   start=str(df.date.min().date()), end=str(df.date.max().date()), loaded_at=_state["loaded_at"],
+                   fallback_reason=_state["fallback_reason"], last_etl=_state["last_etl"])
+
+@app.route("/api/admin/status")
+@admin_api
+def admin_status():
+    return status_payload()
+
+@app.route("/api/admin/reload", methods=["POST"])
+@admin_api
+def admin_reload():
+    mode = (request.get_json(silent=True) or {}).get("mode", "auto")
+    if mode not in ("auto", "csv"): raise ValueError("Mode must be 'auto' or 'csv'.")
+    old = dict(_state)
+    _state["source_mode"] = mode; _cache.clear()
+    try:
+        load_df()
+    except Exception:
+        _state.update(source_mode=old["source_mode"]); _cache.clear()   # keep the previous mode if the new one cannot load
+        raise
+    log.info("Admin %s reloaded data: mode=%s source=%s", session["user"], mode, _cache["source"])
+    return status_payload()
 
 if __name__ == "__main__":
     app.run(debug=os.getenv("FLASK_DEBUG") == "1")

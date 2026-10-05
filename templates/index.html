@@ -30,37 +30,34 @@ pre{background:rgba(0,0,0,.06);padding:12px;border-radius:8px;overflow:auto;font
 @keyframes s{to{transform:rotate(360deg)}}
 @media(max-width:760px){body{flex-direction:column}aside{width:100%;height:auto;position:static;display:flex;overflow-x:auto;padding:10px}aside h2{display:none}aside a{white-space:nowrap}}
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+{% if role != 'admin' %}[data-p=etl],#etl,#adm{display:none!important}{% endif %}
 </style></head><body>
 <aside><h2>Airwise</h2>
-<a data-p="dash" class="on">Dashboard</a><a data-p="wh">Data Warehouse</a><a data-p="etl">ETL Pipeline</a><a data-p="olap">OLAP</a><a data-p="mine">Data Mining</a><a data-p="pred">Prediction</a><a href="/logout">Sign out</a></aside>
+<a data-p="dash" class="on">Dashboard</a><a data-p="etl">ETL Pipeline</a><a data-p="olap">OLAP</a><a data-p="mine">Data Mining</a><a data-p="pred">Prediction</a>{% if role == 'admin' %}<a data-p="adm">Admin</a>{% endif %}<a href="/logout">Sign out</a></aside>
 <main>
 <div class="top"><h1 id="title">Air quality overview</h1><select id="fc"><option value="">All cities</option></select>
-<select id="fk"><option value="">All categories</option><option>Good</option><option>Moderate</option><option>Poor</option><option>Very Poor</option><option>Severe</option></select>
+<select id="fk" title="Measure"><option value="aqi">AQI</option><option value="pm25">PM2.5</option><option value="pm10">PM10</option><option value="no2">NO2</option><option value="so2">SO2</option><option value="o3">O3</option><option value="co">CO</option></select>
 <input type="date" id="fs" title="From"><input type="date" id="fe" title="To"><button class="p" id="apply">Apply</button><button id="theme">Dark mode</button><span class="badge" id="src" style="background:var(--acc)" title="Active data source">Data source: ...</span><span class="spin" id="spin"></span></div>
 
 <section class="pg on" id="dash">
 <div class="grid" id="cards"></div>
-<div class="g2"><div class="card"><h3>AQI trend (last 90 days)</h3><canvas id="c1"></canvas></div><div class="card"><h3>Average pollutant levels</h3><canvas id="c2"></canvas></div></div>
-<div class="g2"><div class="card"><h3>AQI category distribution</h3><canvas id="c3"></canvas></div><div class="card"><h3>City comparison (average AQI)</h3><canvas id="c4"></canvas></div></div>
-<div class="card" style="margin-bottom:14px"><h3>Monthly AQI</h3><canvas id="c5"></canvas></div>
-<div class="card"><h3>Latest AQI by city</h3><div id="map"></div></div>
-</section>
-
-<section class="pg" id="wh">
-<div class="card"><h3>Pipeline</h3><div class="flow"><span>Data sources</span>&rarr;<span>ETL</span>&rarr;<span>Data warehouse</span>&rarr;<span>Star schema</span>&rarr;<span>OLAP</span>&rarr;<span>Data mining</span>&rarr;<span>Prediction</span>&rarr;<span>Dashboard</span></div></div><br>
-<div class="card"><h3>Star schema</h3><svg viewBox="0 0 760 360" width="100%" style="max-width:760px" font-family="Segoe UI" font-size="12">
-<g stroke="var(--acc)" stroke-width="2"><line x1="380" y1="150" x2="120" y2="70"/><line x1="380" y1="150" x2="640" y2="70"/><line x1="380" y1="210" x2="380" y2="300"/></g>
-<g fill="var(--card)" stroke="var(--acc)" stroke-width="2"><rect x="270" y="110" width="220" height="140" rx="8"/><rect x="20" y="20" width="200" height="100" rx="8"/><rect x="540" y="20" width="200" height="100" rx="8"/><rect x="270" y="290" width="220" height="60" rx="8"/></g>
-<g fill="var(--ink)"><text x="285" y="132" font-weight="700">fact_air_quality</text><text x="285" y="152">measurement_id (PK)</text><text x="285" y="168">date_id, location_id, pollutant_id (FK)</text><text x="285" y="184">temperature, humidity</text><text x="285" y="200">pm25, pm10, co, no2, so2, o3</text><text x="285" y="216">aqi</text>
-<text x="32" y="42" font-weight="700">dim_date</text><text x="32" y="60">date_id, full_date, day, month</text><text x="32" y="76">month_name, quarter, year</text>
-<text x="552" y="42" font-weight="700">dim_location</text><text x="552" y="60">location_id, city, state</text><text x="552" y="76">country, latitude, longitude</text>
-<text x="285" y="312" font-weight="700">dim_pollutant</text><text x="285" y="330">pollutant_id, name, unit, description</text></g></svg></div>
+<div class="g2"><div class="card"><h3><span class="mn">AQI</span> trend (<span id="tl">last 90 days</span>)</h3><canvas id="c1"></canvas></div><div class="card"><h3>Average pollutant levels</h3><canvas id="c2"></canvas></div></div>
+<div class="g2"><div class="card"><h3>AQI category distribution</h3><canvas id="c3"></canvas></div><div class="card"><h3>City comparison (average <span class="mn">AQI</span>)</h3><canvas id="c4"></canvas></div></div>
+<div class="card" style="margin-bottom:14px"><h3>Monthly <span class="mn">AQI</span></h3><canvas id="c5"></canvas></div>
+<div class="card"><h3>Latest <span class="mn">AQI</span> by city</h3><div id="map"></div></div>
 </section>
 
 <section class="pg" id="etl"><div class="card"><h3>Extract, transform, load</h3>
 <div class="flow"><span>Raw CSV</span>&rarr;<span>Extract</span>&rarr;<span>Transform</span>&rarr;<span>Clean</span>&rarr;<span>Load</span>&rarr;<span>Warehouse</span></div>
 <div class="row"><input type="file" id="csv" accept=".csv"><button class="p" id="up">Run ETL</button></div>
 <p style="color:var(--mut);font-size:13px">Required columns: date, city, pm25, pm10, co, no2, so2, o3, temperature, humidity. AQI is calculated when missing.</p><div class="grid" id="etlstats"></div></div></section>
+
+{% if role == 'admin' %}<section class="pg" id="adm"><div class="card"><h3>Data source</h3>
+<div class="grid" id="admstats"></div>
+<p id="admwhy" style="color:var(--mut);font-size:13px"></p>
+<div class="row"><button class="p" id="admauto">Reload from warehouse (auto)</button><button id="admcsv">Revert to default CSV</button></div>
+<p style="color:var(--mut);font-size:13px">Auto tries MySQL first and falls back to the CSV. Reverting to CSV discards any ETL data loaded into MySQL from the dashboard until you reload from the warehouse.</p></div>
+<div class="card"><h3>Last ETL run</h3><div id="admetl" style="font-size:14px"></div></div></section>{% endif %}
 
 <section class="pg" id="olap"><div class="card"><h3>OLAP operations</h3>
 <div class="row"><label>Measure</label><select id="om"><option value="aqi">AQI</option><option value="pm25">PM2.5</option><option value="pm10">PM10</option><option value="no2">NO2</option></select>
@@ -73,10 +70,11 @@ pre{background:rgba(0,0,0,.06);padding:12px;border-radius:8px;overflow:auto;font
 <div class="row"><label>K</label><select id="k"><option>2</option><option selected>3</option><option>4</option></select><button class="p" id="kmb">Cluster</button></div><canvas id="kc"></canvas><div id="kt"></div></div>
 <div class="card"><h3>Decision tree: predict AQI category</h3><button class="p" id="dtb">Train and evaluate</button><div id="dt"></div></div></div></section>
 
-<section class="pg" id="pred"><div class="card" style="max-width:640px"><h3>Predict AQI (linear regression)</h3><div class="grid" id="pf"></div>
+<section class="pg" id="pred"><div class="g2"><div class="card"><h3>Predict AQI</h3><p id="pbest" style="color:var(--mut);font-size:13px">Comparing regression models...</p><div class="grid" id="pf"></div>
 <button class="p" id="pb">Predict</button><div style="text-align:center"><svg viewBox="0 0 220 130" width="260"><path d="M20 110A90 90 0 0 1 200 110" fill="none" stroke="var(--line)" stroke-width="16" stroke-linecap="round"/>
 <path id="arc" d="M20 110A90 90 0 0 1 200 110" fill="none" stroke="#2e9e5b" stroke-width="16" stroke-linecap="round" stroke-dasharray="283" stroke-dashoffset="283" style="transition:stroke-dashoffset 1s,stroke .6s"/>
-<text id="gv" x="110" y="100" text-anchor="middle" font-size="34" font-weight="700" fill="var(--ink)">--</text></svg><div id="gc"></div></div></div></section>
+<text id="gv" x="110" y="100" text-anchor="middle" font-size="34" font-weight="700" fill="var(--ink)">--</text></svg><div id="gc"></div></div></div>
+<div class="card"><h3>Regression comparison</h3><div id="rt" style="overflow-x:auto"></div><p id="rn" style="color:var(--mut);font-size:13px"></p></div></div></section>
 </main><div id="toast"></div>
 <script>
 const $=id=>document.getElementById(id),COL={Good:'#2e9e5b',Moderate:'#d4b106',Poor:'#e8870e','Very Poor':'#d13b2e',Severe:'#7a1414'};
@@ -84,7 +82,8 @@ const MN=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec
 function toast(m){const t=$('toast');t.textContent=m;t.classList.add('on');setTimeout(()=>t.classList.remove('on'),3500)}
 async function get(u,o){$('spin').style.display='inline-block';try{const r=await fetch(u,o);const j=await r.json();if(!r.ok)throw new Error(j.error||'Request failed');return j}catch(e){toast(e.message);throw e}finally{$('spin').style.display='none'}}
 function mkc(id,type,labels,sets,opt={}){if(ch[id])ch[id].destroy();ch[id]=new Chart($(id),{type,data:{labels,datasets:sets},options:Object.assign({responsive:true,plugins:{legend:{display:sets.length>1||type=='doughnut'}}},opt)})}
-function qs(){const p=new URLSearchParams();[['city','fc'],['cat','fk'],['start','fs'],['end','fe']].forEach(([k,i])=>$(i).value&&p.set(k,$(i).value));return p.toString()}
+function qs(){const p=new URLSearchParams();[['city','fc'],['start','fs'],['end','fe']].forEach(([k,i])=>$(i).value&&p.set(k,$(i).value));return p.toString()}
+function mq(){return 'measure='+$('fk').value}
 const fmt=v=>typeof v=='number'&&Number.isInteger(v)&&v>1999&&v<2100?String(v):(typeof v=='number'&&Number.isInteger(v)?v:v);
 async function dash(){const q=qs();
  let s;try{s=await get('/api/summary?'+q)}catch(e){Object.values(ch).forEach(c=>c.destroy());ch={};$('cards').innerHTML=`<div class="card empty"><b>No data to show</b>${e.message}</div>`;return}
@@ -93,14 +92,14 @@ async function dash(){const q=qs();
  for(const k in units)h+=`<div class="card"><h3>${k.toUpperCase().replace('TEMPERATURE','Temperature').replace('HUMIDITY','Humidity')}</h3><div class="num" data-v="${s[k]}">0</div><small>${units[k]}</small></div>`;
  $('cards').innerHTML=h;document.querySelectorAll('.num[data-v]').forEach(e=>{const t=+e.dataset.v,t0=performance.now();(function f(n){const x=Math.min((n-t0)/700,1);e.textContent=(t*x).toFixed(t%1?1:0);if(x<1)requestAnimationFrame(f)})(t0)});
  $('cards').insertAdjacentHTML('beforeend',`<div class="card"><h3>Data source</h3><small>${s.source}<br>${s.records} records in this view</small></div>`);
- const c=await get('/api/charts?'+q),dk=document.documentElement.dataset.theme=='dark';Chart.defaults.color=dk?'#9bb0aa':'#51625e';
- mkc('c1','line',c.trend.x,[{label:'AQI',data:c.trend.y,borderColor:'#1f6f6b',tension:.3,pointRadius:0}]);
+ const c=await get('/api/charts?'+q+(q?'&':'')+mq()),dk=document.documentElement.dataset.theme=='dark';Chart.defaults.color=dk?'#9bb0aa':'#51625e';
+ document.querySelectorAll('.mn').forEach(e=>e.textContent=c.measure);$('tl').textContent=c.trend.label;mkc('c1','line',c.trend.x,[{label:c.measure,data:c.trend.y,borderColor:'#1f6f6b',tension:.3,pointRadius:0}]);
  mkc('c2','bar',c.pollutants.x,[{label:'Mean',data:c.pollutants.y,backgroundColor:'#1f6f6b'}]);
  mkc('c3','doughnut',c.categories.x,[{data:c.categories.y,backgroundColor:Object.values(COL)}]);
- mkc('c4','bar',c.cities.x,[{label:'Avg AQI',data:c.cities.y,backgroundColor:'#c98a2b'}]);
- mkc('c5','line',c.monthly.x,[{label:'AQI',data:c.monthly.y,borderColor:'#7a1414',tension:.3}]);
- const cs=await get('/api/cities');if(!map){map=L.map('map').setView([22,79],5);L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap'}).addTo(map)}
- mk.forEach(m=>m.remove());mk=cs.map(d=>L.circleMarker([d.latitude,d.longitude],{radius:13,color:'#fff',weight:2,fillColor:COL[d.category],fillOpacity:.95}).addTo(map).bindPopup(`<b>${d.city}</b><br>AQI ${d.aqi} (${d.category})<br>PM2.5 ${d.pm25} · PM10 ${d.pm10}<br>${d.temperature}°C, ${d.humidity}% humidity`))}
+ mkc('c4','bar',c.cities.x,[{label:'Avg '+c.measure,data:c.cities.y,backgroundColor:'#c98a2b'}]);
+ mkc('c5','line',c.monthly.x,[{label:c.measure,data:c.monthly.y,borderColor:'#7a1414',tension:.3}]);
+ const cs=await get('/api/cities?'+mq());if(!map){map=L.map('map').setView([22,79],5);L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap'}).addTo(map)}
+ mk.forEach(m=>m.remove());mk=cs.map(d=>L.circleMarker([d.latitude,d.longitude],{radius:13,color:'#fff',weight:2,fillColor:$('fk').value=='aqi'?COL[d.category]:`hsl(${120-120*d.share},65%,45%)`,fillOpacity:.95}).addTo(map).bindPopup(`<b>${d.city}</b><br>${c.measure} ${d.value}${$('fk').value=='aqi'?' ('+d.category+')':''}<br>AQI ${d.aqi} (${d.category})<br>PM2.5 ${d.pm25} · PM10 ${d.pm10}<br>${d.temperature}°C, ${d.humidity}% humidity`))}
 function table(j){return '<table><tr>'+j.columns.map(c=>`<th>${c}</th>`).join('')+'</tr>'+j.rows.map(r=>'<tr>'+r.map(v=>`<td>${typeof v=='number'&&Number.isInteger(v)?v:v}</td>`).join('')+'</tr>').join('')+'</table>'}
 function oq(o){const m='&metric='+$('om').value;return {rollup:'/api/olap/rollup?level=month'+m,rollupy:'/api/olap/rollup?level=year'+m,drill1:'/api/olap/drilldown?year=2025'+m,drill2:'/api/olap/drilldown?year=2025&month=1'+m,
  slice:'/api/olap/slice?city='+$('os').value+m,dice:`/api/olap/dice?cities=${$('od1').value},${$('od2').value}&year=${$('oy').value}`+m}[o]}
@@ -113,15 +112,25 @@ async function kmeans(){const j=await get('/api/mining/clustering?k='+$('k').val
  $('kt').innerHTML='<div class="tw"><table><tr><th>Cluster</th><th>Meaning</th><th>Avg AQI</th><th>Cities</th></tr>'+j.clusters.map(c=>`<tr><td>${c.id}</td><td>${c.label}</td><td>${c.avg_aqi}</td><td>${c.cities.join(', ')}</td></tr>`).join('')+'</table></div>'}
 async function dtree(){const j=await get('/api/mining/classification');$('dt').innerHTML=`<div class="grid"><div>Accuracy<div class="num">${(j.accuracy*100).toFixed(1)}%</div></div><div>Precision<div class="num">${j.precision}</div></div><div>Recall<div class="num">${j.recall}</div></div><div>F1<div class="num">${j.f1}</div></div></div>
 <h3>Confusion matrix</h3><div class="tw"><table><tr><th></th>${j.labels.map(l=>`<th>${l}</th>`).join('')}</tr>${j.matrix.map((r,i)=>`<tr><th>${j.labels[i]}</th>${r.map(v=>`<td>${v}</td>`).join('')}</tr>`).join('')}</table></div><h3>Tree rules</h3><pre>${j.tree}</pre>`}
-const PF=[['pm25',78],['pm10',126],['co',1.8],['no2',40],['so2',10],['o3',45],['temperature',29],['humidity',60]];
-$('pf').innerHTML=PF.map(([k,v])=>`<div><label style="font-size:12px;color:var(--mut)">${k}</label><input id="f_${k}" type="number" step="any" value="${v}" style="width:100%"></div>`).join('');
-$('pb').onclick=async()=>{const b={};PF.forEach(([k])=>b[k]=$('f_'+k).value);const j=await get('/api/mining/prediction',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});
- $('arc').style.stroke=COL[j.category];$('arc').style.strokeDashoffset=283-283*Math.min(j.aqi,400)/400;$('gv').textContent=j.aqi;$('gc').innerHTML=`<span class="badge" style="background:${COL[j.category]}">${j.category}</span><br><small>Model R² on held-out data: ${j.r2}</small>`};
+let PFS=[];
+async function regs(){const j=await get('/api/mining/regression');if(!j)return;PFS=j.features;
+ $('pf').innerHTML=PFS.map(k=>`<div><label style="font-size:12px;color:var(--mut)">${k}</label><input id="f_${k}" type="number" step="any" value="${j.defaults[k]}" style="width:100%"></div>`).join('');
+ $('pbest').innerHTML=`Best model: <b>${j.best}</b> using ${PFS.length} inputs (${PFS.join(', ')}).`;
+ $('rt').innerHTML='<table><tr><th>Model</th><th>Inputs</th><th>CV RMSE</th><th>Test R²</th><th>Test RMSE</th><th>MAE</th></tr>'+j.models.map(m=>`<tr${m.model==j.best?' style="font-weight:700"':''}><td>${m.model}${m.model==j.best?' (best)':''}</td><td>${m.features.join(', ')}</td><td>${m.cv_rmse}</td><td>${m.r2}</td><td>${m.rmse}</td><td>${m.mae}</td></tr>`).join('')+'</table>';
+ $('rn').textContent=`Feature ranking (mutual information): ${j.ranking.map(r=>r[0]+' '+r[1]).join(', ')}. Models trained on ${j.train_size} rows, scored on ${j.test_size} unseen rows. Each model uses the fewest inputs that keep its error within 2% of its best.`}
+$('pb').onclick=async()=>{const b={};PFS.forEach(k=>b[k]=$('f_'+k).value);const j=await get('/api/mining/prediction',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});
+ $('arc').style.stroke=COL[j.category];$('arc').style.strokeDashoffset=283-283*Math.min(j.aqi,400)/400;$('gv').textContent=j.aqi;$('gc').innerHTML=`<span class="badge" style="background:${COL[j.category]}">${j.category}</span><br><small>${j.model}, R² on held-out data: ${j.r2}</small>`};
 $('up').onclick=async()=>{const f=$('csv').files[0];if(!f)return toast('Choose a CSV file first.');const fd=new FormData();fd.append('file',f);const j=await get('/api/etl/upload',{method:'POST',body:fd});
  $('etlstats').innerHTML=[['Extracted',j.extracted],['Cleaned',j.cleaned],['Transformed',j.transformed],['Loaded',j.loaded],['Missing values handled',j.missing_handled],['Duplicates removed',j.duplicates_removed]].map(([a,b])=>`<div class="card"><h3>${a}</h3><div class="num">${b}</div></div>`).join('')+`<div class="card"><h3>Target</h3>${j.target}</div>`;toast('ETL finished.')};
-document.querySelectorAll('aside a[data-p]').forEach(a=>a.onclick=()=>{document.querySelectorAll('.pg,aside a').forEach(e=>e.classList.remove('on'));$(a.dataset.p).classList.add('on');a.classList.add('on');$('title').textContent=a.textContent;if(a.dataset.p=='dash'&&map)setTimeout(()=>map.invalidateSize(),50)});
+async function admin(r){const j=await get(r?'/api/admin/reload':'/api/admin/status',r?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:r})}:undefined);if(!j)return;
+ $('admstats').innerHTML=[['Active source',j.source],['Mode',j.mode],['Records',j.records],['Cities',j.cities],['Date range',j.start+' to '+j.end],['Loaded at',j.loaded_at]].map(([a,b])=>`<div class="card"><h3>${a}</h3><div class="num" style="font-size:20px">${b}</div></div>`).join('');
+ $('admwhy').textContent=j.fallback_reason?'Why not MySQL: '+j.fallback_reason:'Connected to the MySQL data warehouse.';
+ const e=j.last_etl;$('admetl').textContent=e?`${e.file} by ${e.by} at ${e.at}: extracted ${e.extracted}, cleaned ${e.cleaned}, loaded ${e.loaded}, duplicates removed ${e.duplicates_removed}. Target: ${e.target}`:'No ETL run since the server started.';
+ if(r){toast('Data reloaded from '+j.source+'.');if(typeof dash=='function')dash()}}
+if($('adm')){$('admauto').onclick=()=>admin('auto');$('admcsv').onclick=()=>admin('csv')}
+document.querySelectorAll('aside a[data-p]').forEach(a=>a.onclick=()=>{document.querySelectorAll('.pg,aside a').forEach(e=>e.classList.remove('on'));$(a.dataset.p).classList.add('on');a.classList.add('on');$('title').textContent=a.textContent;if(a.dataset.p=='adm')admin();if(a.dataset.p=='pred'&&!PFS.length)regs();if(a.dataset.p=='dash'&&map)setTimeout(()=>map.invalidateSize(),50)});
 document.querySelectorAll('[data-o]').forEach(b=>b.onclick=()=>olap(b.dataset.o));
-$('apply').onclick=dash;$('kmb').onclick=kmeans;$('dtb').onclick=dtree;
+$('apply').onclick=dash;$('fk').onchange=dash;$('kmb').onclick=kmeans;$('dtb').onclick=dtree;
 $('theme').onclick=()=>{const d=document.documentElement,n=d.dataset.theme=='dark'?'light':'dark';d.dataset.theme=n;try{localStorage.setItem('theme',n)}catch(e){}$('theme').textContent=n=='dark'?'Light mode':'Dark mode';dash()};
 try{const t=localStorage.getItem('theme');if(t){document.documentElement.dataset.theme=t;$('theme').textContent=t=='dark'?'Light mode':'Dark mode'}}catch(e){}
 get('/api/filters').then(f=>{
