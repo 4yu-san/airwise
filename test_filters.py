@@ -5,7 +5,7 @@ from urllib.parse import quote
 import app
 
 c = app.app.test_client()
-with c.session_transaction() as s: s["user"] = "admin"
+with c.session_transaction() as s: s["user"] = "admin"; s["role"] = "admin"
 fails = 0
 def check(name, ok, extra=""):
     global fails

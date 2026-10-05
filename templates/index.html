@@ -30,9 +30,10 @@ pre{background:rgba(0,0,0,.06);padding:12px;border-radius:8px;overflow:auto;font
 @keyframes s{to{transform:rotate(360deg)}}
 @media(max-width:760px){body{flex-direction:column}aside{width:100%;height:auto;position:static;display:flex;overflow-x:auto;padding:10px}aside h2{display:none}aside a{white-space:nowrap}}
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+{% if role != 'admin' %}[data-p=etl],#etl,#adm{display:none!important}{% endif %}
 </style></head><body>
 <aside><h2>Airwise</h2>
-<a data-p="dash" class="on">Dashboard</a><a data-p="wh">Data Warehouse</a><a data-p="etl">ETL Pipeline</a><a data-p="olap">OLAP</a><a data-p="mine">Data Mining</a><a data-p="pred">Prediction</a><a href="/logout">Sign out</a></aside>
+<a data-p="dash" class="on">Dashboard</a><a data-p="wh">Data Warehouse</a><a data-p="etl">ETL Pipeline</a><a data-p="olap">OLAP</a><a data-p="mine">Data Mining</a><a data-p="pred">Prediction</a>{% if role == 'admin' %}<a data-p="adm">Admin</a>{% endif %}<a href="/logout">Sign out</a></aside>
 <main>
 <div class="top"><h1 id="title">Air quality overview</h1><select id="fc"><option value="">All cities</option></select>
 <select id="fk"><option value="">All categories</option><option>Good</option><option>Moderate</option><option>Poor</option><option>Very Poor</option><option>Severe</option></select>
@@ -61,6 +62,13 @@ pre{background:rgba(0,0,0,.06);padding:12px;border-radius:8px;overflow:auto;font
 <div class="flow"><span>Raw CSV</span>&rarr;<span>Extract</span>&rarr;<span>Transform</span>&rarr;<span>Clean</span>&rarr;<span>Load</span>&rarr;<span>Warehouse</span></div>
 <div class="row"><input type="file" id="csv" accept=".csv"><button class="p" id="up">Run ETL</button></div>
 <p style="color:var(--mut);font-size:13px">Required columns: date, city, pm25, pm10, co, no2, so2, o3, temperature, humidity. AQI is calculated when missing.</p><div class="grid" id="etlstats"></div></div></section>
+
+{% if role == 'admin' %}<section class="pg" id="adm"><div class="card"><h3>Data source</h3>
+<div class="grid" id="admstats"></div>
+<p id="admwhy" style="color:var(--mut);font-size:13px"></p>
+<div class="row"><button class="p" id="admauto">Reload from warehouse (auto)</button><button id="admcsv">Revert to default CSV</button></div>
+<p style="color:var(--mut);font-size:13px">Auto tries MySQL first and falls back to the CSV. Reverting to CSV discards any ETL data loaded into MySQL from the dashboard until you reload from the warehouse.</p></div>
+<div class="card"><h3>Last ETL run</h3><div id="admetl" style="font-size:14px"></div></div></section>{% endif %}
 
 <section class="pg" id="olap"><div class="card"><h3>OLAP operations</h3>
 <div class="row"><label>Measure</label><select id="om"><option value="aqi">AQI</option><option value="pm25">PM2.5</option><option value="pm10">PM10</option><option value="no2">NO2</option></select>
@@ -119,7 +127,13 @@ $('pb').onclick=async()=>{const b={};PF.forEach(([k])=>b[k]=$('f_'+k).value);con
  $('arc').style.stroke=COL[j.category];$('arc').style.strokeDashoffset=283-283*Math.min(j.aqi,400)/400;$('gv').textContent=j.aqi;$('gc').innerHTML=`<span class="badge" style="background:${COL[j.category]}">${j.category}</span><br><small>Model R² on held-out data: ${j.r2}</small>`};
 $('up').onclick=async()=>{const f=$('csv').files[0];if(!f)return toast('Choose a CSV file first.');const fd=new FormData();fd.append('file',f);const j=await get('/api/etl/upload',{method:'POST',body:fd});
  $('etlstats').innerHTML=[['Extracted',j.extracted],['Cleaned',j.cleaned],['Transformed',j.transformed],['Loaded',j.loaded],['Missing values handled',j.missing_handled],['Duplicates removed',j.duplicates_removed]].map(([a,b])=>`<div class="card"><h3>${a}</h3><div class="num">${b}</div></div>`).join('')+`<div class="card"><h3>Target</h3>${j.target}</div>`;toast('ETL finished.')};
-document.querySelectorAll('aside a[data-p]').forEach(a=>a.onclick=()=>{document.querySelectorAll('.pg,aside a').forEach(e=>e.classList.remove('on'));$(a.dataset.p).classList.add('on');a.classList.add('on');$('title').textContent=a.textContent;if(a.dataset.p=='dash'&&map)setTimeout(()=>map.invalidateSize(),50)});
+async function admin(r){const j=await get(r?'/api/admin/reload':'/api/admin/status',r?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:r})}:undefined);if(!j)return;
+ $('admstats').innerHTML=[['Active source',j.source],['Mode',j.mode],['Records',j.records],['Cities',j.cities],['Date range',j.start+' to '+j.end],['Loaded at',j.loaded_at]].map(([a,b])=>`<div class="card"><h3>${a}</h3><div class="num" style="font-size:20px">${b}</div></div>`).join('');
+ $('admwhy').textContent=j.fallback_reason?'Why not MySQL: '+j.fallback_reason:'Connected to the MySQL data warehouse.';
+ const e=j.last_etl;$('admetl').textContent=e?`${e.file} by ${e.by} at ${e.at}: extracted ${e.extracted}, cleaned ${e.cleaned}, loaded ${e.loaded}, duplicates removed ${e.duplicates_removed}. Target: ${e.target}`:'No ETL run since the server started.';
+ if(r){toast('Data reloaded from '+j.source+'.');if(typeof dash=='function')dash()}}
+if($('adm')){$('admauto').onclick=()=>admin('auto');$('admcsv').onclick=()=>admin('csv')}
+document.querySelectorAll('aside a[data-p]').forEach(a=>a.onclick=()=>{document.querySelectorAll('.pg,aside a').forEach(e=>e.classList.remove('on'));$(a.dataset.p).classList.add('on');a.classList.add('on');$('title').textContent=a.textContent;if(a.dataset.p=='adm')admin();if(a.dataset.p=='dash'&&map)setTimeout(()=>map.invalidateSize(),50)});
 document.querySelectorAll('[data-o]').forEach(b=>b.onclick=()=>olap(b.dataset.o));
 $('apply').onclick=dash;$('kmb').onclick=kmeans;$('dtb').onclick=dtree;
 $('theme').onclick=()=>{const d=document.documentElement,n=d.dataset.theme=='dark'?'light':'dark';d.dataset.theme=n;try{localStorage.setItem('theme',n)}catch(e){}$('theme').textContent=n=='dark'?'Light mode':'Dark mode';dash()};

@@ -20,10 +20,13 @@ app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", "dev-only-secret")
 ADMIN_USER = os.getenv("ADMIN_USER", "admin")
 ADMIN_HASH = generate_password_hash(os.getenv("ADMIN_PASSWORD", "admin123"), method="pbkdf2:sha256")
+USER_NAME = os.getenv("USER_NAME", "user")
+USER_HASH = generate_password_hash(os.getenv("USER_PASSWORD", "user123"), method="pbkdf2:sha256")
 FEATURES = ["pm25", "pm10", "co", "no2", "so2", "o3", "temperature", "humidity"]
 CATS = ["Good", "Moderate", "Poor", "Very Poor", "Severe"]
 MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
 _cache = {}
+_state = {"source_mode": "auto", "fallback_reason": None, "loaded_at": None, "last_etl": None}   # admin-visible runtime state
 
 def db_conn():
     import pymysql
@@ -64,7 +67,10 @@ def prepare(df):
 
 def read_source():
     """Returns (raw dataframe, source label). MySQL first, CSV fallback; FORCE_CSV=1 skips MySQL."""
-    if os.getenv("FORCE_CSV") != "1":
+    _state["fallback_reason"] = None
+    if _state["source_mode"] == "csv" or os.getenv("FORCE_CSV") == "1":
+        _state["fallback_reason"] = "CSV forced " + ("by admin" if _state["source_mode"] == "csv" else "by FORCE_CSV=1")
+    else:
         try:
             conn = db_conn()
             try:
@@ -73,6 +79,7 @@ def read_source():
                 conn.close()
             return raw, "MySQL Data Warehouse"
         except Exception as e:
+            _state["fallback_reason"] = f"MySQL unavailable ({type(e).__name__}: {str(e)[:120]})"
             log.warning("MySQL unavailable (%s); using CSV fallback", type(e).__name__)
     return pd.read_csv(os.path.join("data", "air_quality.csv")), "CSV Fallback"
 
@@ -84,6 +91,7 @@ def load_df(force=False):
         raise ValueError("The warehouse has no records. Run database.sql or upload a CSV on the ETL page.")
     df = prepare(raw)
     _cache.update(df=df, source=source)
+    _state["loaded_at"] = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")
     log.info("Loaded %d rows from %s | cities=%s | %s to %s", len(df), source, df.city.nunique(),
              df.date.min().date(), df.date.max().date())
     return df
@@ -131,10 +139,12 @@ def filters():
     return jsonify(cities=sorted(df.city.unique()), min_date=str(df.date.min().date()), max_date=str(df.date.max().date()),
                    categories=CATS, source=_cache["source"], records=int(len(df)))
 
-def api(fn):
+def api(fn, admin=False):
     def wrap(*a, **k):
         if "user" not in session:
             return jsonify(error="Please log in first."), 401
+        if admin and session.get("role") != "admin":
+            return jsonify(error="Admin access required."), 403
         try:
             return fn(*a, **k)
         except ValueError as e:
@@ -145,23 +155,36 @@ def api(fn):
     wrap.__name__ = fn.__name__
     return wrap
 
-@app.route("/login", methods=["GET", "POST"])
-def login():
+def admin_api(fn):
+    return api(fn, admin=True)
+
+def do_login(role, name, pw_hash, template, home):
+    if session.get("role") == role:
+        return redirect(url_for(home))
     if request.method == "POST":
         u, p = request.form.get("username", "").strip(), request.form.get("password", "")
-        if u == ADMIN_USER and check_password_hash(ADMIN_HASH, p):
-            session["user"] = u
+        if u == name and check_password_hash(pw_hash, p):
+            session.clear(); session["user"] = u; session["role"] = role
             return redirect(url_for("index"))
-        return render_template("login.html", error="Wrong username or password.")
-    return render_template("login.html")
+        return render_template(template, error="Wrong username or password.")
+    return render_template(template)
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    return do_login("user", USER_NAME, USER_HASH, "login.html", "index")
+
+@app.route("/admin/login", methods=["GET", "POST"])
+def admin_login():
+    return do_login("admin", ADMIN_USER, ADMIN_HASH, "admin_login.html", "index")
 
 @app.route("/logout")
 def logout():
-    session.clear(); return redirect(url_for("login"))
+    role = session.get("role"); session.clear()
+    return redirect(url_for("admin_login" if role == "admin" else "login"))
 
 @app.route("/")
 def index():
-    return render_template("index.html") if "user" in session else redirect(url_for("login"))
+    return render_template("index.html", role=session["role"]) if "user" in session else redirect(url_for("login"))
 
 @app.route("/api/summary")
 @api
@@ -279,7 +302,7 @@ def prediction():
                    r2=round(r2_score(df.aqi.loc[Xte.index], reg.predict(Xte)), 3))
 
 @app.route("/api/etl/upload", methods=["POST"])
-@api
+@admin_api
 def etl_upload():
     f = request.files.get("file")
     if not f or not f.filename.lower().endswith(".csv"): raise ValueError("Upload a .csv file.")
@@ -316,7 +339,35 @@ def etl_upload():
         _cache.clear()
     except Exception:
         pass
+    _state["last_etl"] = {**st, "file": f.filename, "at": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"), "by": session["user"]}
+    log.info("ETL upload by %s: %s", session["user"], st)
     return jsonify(st)
+
+def status_payload():
+    df = load_df()
+    return jsonify(source=_cache["source"], mode=_state["source_mode"], records=int(len(df)), cities=int(df.city.nunique()),
+                   start=str(df.date.min().date()), end=str(df.date.max().date()), loaded_at=_state["loaded_at"],
+                   fallback_reason=_state["fallback_reason"], last_etl=_state["last_etl"])
+
+@app.route("/api/admin/status")
+@admin_api
+def admin_status():
+    return status_payload()
+
+@app.route("/api/admin/reload", methods=["POST"])
+@admin_api
+def admin_reload():
+    mode = (request.get_json(silent=True) or {}).get("mode", "auto")
+    if mode not in ("auto", "csv"): raise ValueError("Mode must be 'auto' or 'csv'.")
+    old = dict(_state)
+    _state["source_mode"] = mode; _cache.clear()
+    try:
+        load_df()
+    except Exception:
+        _state.update(source_mode=old["source_mode"]); _cache.clear()   # keep the previous mode if the new one cannot load
+        raise
+    log.info("Admin %s reloaded data: mode=%s source=%s", session["user"], mode, _cache["source"])
+    return status_payload()
 
 if __name__ == "__main__":
     app.run(debug=os.getenv("FLASK_DEBUG") == "1")
