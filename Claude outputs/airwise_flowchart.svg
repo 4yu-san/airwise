@@ -1,0 +1,94 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1130" width="1200" height="1130" font-family="Helvetica, Arial, sans-serif">
+<defs><marker id="a" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto"><path d="M0,0 L10,4 L0,8 z" fill="#51625e"/></marker></defs>
+<style>.t{font-size:16px;font-weight:700;fill:#1c2b28}.s{font-size:12.5px;fill:#3b4b47}.l{font-size:12px;fill:#51625e;font-style:italic}.b{font-size:12px;font-weight:700;fill:#7a8a85;letter-spacing:.06em}.h{font-size:24px;font-weight:700;fill:#1c2b28}</style>
+<rect width="1200" height="1130" fill="#ffffff"/>
+<text x="600.0" y="38" text-anchor="middle" class="h">Airwise: how the air-quality DWM website is built</text>
+<rect x="10" y="55" width="1180" height="120" rx="14" fill="none" stroke="#b9c9c5" stroke-dasharray="3 5"/>
+<text x="24" y="75" class="b">1. BUILD THE DATA</text>
+<rect x="400" y="85" width="400" height="75" rx="12" fill="#fdf1dc" stroke="#c98a2b" stroke-width="2"/>
+<text x="600.0" y="111" text-anchor="middle" class="t">generate_dataset.py</text>
+<text x="600.0" y="130" text-anchor="middle" class="s">NumPy + pandas, seeded: 8 cities, daily 2024-2025</text>
+<text x="600.0" y="149" text-anchor="middle" class="s">AQI from PM2.5 / PM10 (CPCB-style breakpoints)</text>
+<line x1="500" y1="160" x2="400" y2="215" stroke="#51625e" stroke-width="2" marker-end="url(#a)"/>
+<line x1="700" y1="160" x2="800" y2="215" stroke="#51625e" stroke-width="2" marker-end="url(#a)"/>
+<rect x="10" y="190" width="1180" height="190" rx="14" fill="none" stroke="#b9c9c5" stroke-dasharray="3 5"/>
+<text x="24" y="210" class="b">2. STORE IT</text>
+<rect x="220" y="215" width="360" height="75" rx="12" fill="#fdf1dc" stroke="#c98a2b" stroke-width="2"/>
+<text x="400.0" y="241" text-anchor="middle" class="t">data/air_quality.csv</text>
+<text x="400.0" y="260" text-anchor="middle" class="s">5,848 rows, flat file</text>
+<rect x="620" y="215" width="360" height="75" rx="12" fill="#fdf1dc" stroke="#c98a2b" stroke-width="2"/>
+<text x="800.0" y="241" text-anchor="middle" class="t">database.sql</text>
+<text x="800.0" y="260" text-anchor="middle" class="s">star-schema DDL + INSERTs</text>
+<line x1="800" y1="290" x2="800" y2="315" stroke="#51625e" stroke-width="2" marker-end="url(#a)"/>
+<text x="815" y="307" class="l">mysql -u root -p &lt; database.sql</text>
+<rect x="620" y="315" width="360" height="60" rx="12" fill="#efe7f6" stroke="#6a4c93" stroke-width="2"/>
+<text x="800.0" y="341" text-anchor="middle" class="t">MySQL: air_quality_dw</text>
+<text x="800.0" y="360" text-anchor="middle" class="s">fact_air_quality + dim_date, dim_location, dim_pollutant, users</text>
+<rect x="10" y="400" width="1180" height="175" rx="14" fill="none" stroke="#b9c9c5" stroke-dasharray="3 5"/>
+<text x="24" y="420" class="b">3. FLASK BACKEND (app.py): DATA LAYER</text>
+<rect x="300" y="430" width="600" height="120" rx="12" fill="#e8f3f1" stroke="#1f6f6b" stroke-width="2"/>
+<text x="600.0" y="456" text-anchor="middle" class="t">read_source() then prepare() then filtered()</text>
+<text x="600.0" y="475" text-anchor="middle" class="s">Tries MySQL first (PyMySQL, 3 s timeout), else falls back to the CSV</text>
+<text x="600.0" y="494" text-anchor="middle" class="s">prepare(): clean city names, parse dates, add year / month / category</text>
+<text x="600.0" y="513" text-anchor="middle" class="s">Cached DataFrame; filtered() applies city, category, start, end</text>
+<line x1="800" y1="375" x2="700" y2="430" stroke="#51625e" stroke-width="2" marker-end="url(#a)"/>
+<text x="772" y="414" class="l">PyMySQL</text>
+<line x1="400" y1="290" x2="450" y2="430" stroke="#51625e" stroke-width="2" stroke-dasharray="7 5" marker-end="url(#a)"/>
+<text x="408" y="362" text-anchor="end" class="l">pandas.read_csv (fallback)</text>
+<rect x="30" y="440" width="230" height="100" rx="12" fill="#f4f4f1" stroke="#8a948f" stroke-width="2"/>
+<text x="145.0" y="466" text-anchor="middle" class="t">Config</text>
+<text x="145.0" y="485" text-anchor="middle" class="s">.env (DB + admin login)</text>
+<text x="145.0" y="504" text-anchor="middle" class="s">requirements.txt</text>
+<text x="145.0" y="523" text-anchor="middle" class="s">python-dotenv</text>
+<rect x="940" y="440" width="230" height="100" rx="12" fill="#f4f4f1" stroke="#8a948f" stroke-width="2"/>
+<text x="1055.0" y="466" text-anchor="middle" class="t">Auth</text>
+<text x="1055.0" y="485" text-anchor="middle" class="s">/login, /logout</text>
+<text x="1055.0" y="504" text-anchor="middle" class="s">session cookie</text>
+<text x="1055.0" y="523" text-anchor="middle" class="s">hashed password</text>
+<rect x="10" y="595" width="1180" height="230" rx="14" fill="none" stroke="#b9c9c5" stroke-dasharray="3 5"/>
+<text x="24" y="615" class="b">4. JSON API ROUTES</text>
+<rect x="40" y="625" width="260" height="110" rx="12" fill="#e8f3f1" stroke="#1f6f6b" stroke-width="2"/>
+<text x="170.0" y="651" text-anchor="middle" class="t">Dashboard</text>
+<text x="170.0" y="670" text-anchor="middle" class="s">/api/summary</text>
+<text x="170.0" y="689" text-anchor="middle" class="s">/api/charts</text>
+<text x="170.0" y="708" text-anchor="middle" class="s">/api/cities</text>
+<text x="170.0" y="727" text-anchor="middle" class="s">/api/filters</text>
+<rect x="320" y="625" width="260" height="110" rx="12" fill="#e8f3f1" stroke="#1f6f6b" stroke-width="2"/>
+<text x="450.0" y="651" text-anchor="middle" class="t">OLAP</text>
+<text x="450.0" y="670" text-anchor="middle" class="s">/api/olap/&lt;op&gt;</text>
+<text x="450.0" y="689" text-anchor="middle" class="s">roll-up, drill-down</text>
+<text x="450.0" y="708" text-anchor="middle" class="s">slice, dice (pandas groupby)</text>
+<line x1="360" y1="550" x2="170" y2="625" stroke="#51625e" stroke-width="2" marker-end="url(#a)"/>
+<line x1="840" y1="550" x2="1010" y2="625" stroke="#51625e" stroke-width="2" marker-end="url(#a)"/>
+<line x1="450" y1="550" x2="450" y2="625" stroke="#51625e" stroke-width="2" marker-end="url(#a)"/>
+<rect x="600" y="625" width="260" height="110" rx="12" fill="#efe7f6" stroke="#6a4c93" stroke-width="2"/>
+<text x="730.0" y="651" text-anchor="middle" class="t">Data mining (scikit-learn)</text>
+<text x="730.0" y="670" text-anchor="middle" class="s">K-Means clustering</text>
+<text x="730.0" y="689" text-anchor="middle" class="s">Decision Tree classifier</text>
+<text x="730.0" y="708" text-anchor="middle" class="s">Linear Regression prediction</text>
+<line x1="730" y1="550" x2="730" y2="625" stroke="#51625e" stroke-width="2" marker-end="url(#a)"/>
+<rect x="880" y="625" width="260" height="110" rx="12" fill="#fdf1dc" stroke="#c98a2b" stroke-width="2"/>
+<text x="1010.0" y="651" text-anchor="middle" class="t">ETL upload</text>
+<text x="1010.0" y="670" text-anchor="middle" class="s">POST /api/etl/upload</text>
+<text x="1010.0" y="689" text-anchor="middle" class="s">validate, fill median, dedupe,</text>
+<text x="1010.0" y="708" text-anchor="middle" class="s">compute AQI, load into MySQL</text>
+<rect x="10" y="850" width="1180" height="150" rx="14" fill="none" stroke="#b9c9c5" stroke-dasharray="3 5"/>
+<text x="24" y="870" class="b">5. FRONTEND (templates/)</text>
+<rect x="200" y="880" width="800" height="90" rx="12" fill="#e6eefb" stroke="#3a6ea5" stroke-width="2"/>
+<text x="600.0" y="906" text-anchor="middle" class="t">index.html + login.html</text>
+<text x="600.0" y="925" text-anchor="middle" class="s">fetch() JSON, then Chart.js (line, bar, doughnut), Leaflet map + OpenStreetMap tiles</text>
+<text x="600.0" y="944" text-anchor="middle" class="s">filter bar (city, category, From / To, Apply), OLAP / mining tables, dark mode</text>
+<line x1="170" y1="735" x2="210" y2="880" stroke="#51625e" stroke-width="2" marker-end="url(#a)"/>
+<line x1="450" y1="735" x2="450" y2="880" stroke="#51625e" stroke-width="2" marker-end="url(#a)"/>
+<line x1="730" y1="735" x2="730" y2="880" stroke="#51625e" stroke-width="2" marker-end="url(#a)"/>
+<line x1="1010" y1="735" x2="990" y2="880" stroke="#51625e" stroke-width="2" marker-end="url(#a)"/>
+<rect x="400" y="1030" width="400" height="70" rx="12" fill="#e8f3f1" stroke="#1f6f6b" stroke-width="2"/>
+<text x="600.0" y="1056" text-anchor="middle" class="t">Browser: http://127.0.0.1:5000</text>
+<text x="600" y="1075" text-anchor="middle" class="s">python app.py runs it; log in as admin</text>
+<rect x="880" y="1030" width="290" height="70" rx="12" fill="#f4f4f1" stroke="#8a948f" stroke-width="2"/>
+<text x="1025.0" y="1056" text-anchor="middle" class="t">test_filters.py</text>
+<text x="1025.0" y="1075" text-anchor="middle" class="s">39 checks on filters + OLAP</text>
+<line x1="1015" y1="1030" x2="1015" y2="1000" stroke="#51625e" stroke-width="2" stroke-dasharray="7 5" marker-end="url(#a)"/>
+<line x1="600" y1="970" x2="600" y2="1030" stroke="#51625e" stroke-width="2" marker-end="url(#a)"/>
+<text x="612" y="1005" class="l">HTML + JSON</text>
+</svg>

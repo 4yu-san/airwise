@@ -1,0 +1,6 @@
+Flask>=3.0
+pandas>=2.0
+numpy>=1.26
+scikit-learn>=1.4
+PyMySQL>=1.1
+python-dotenv>=1.0

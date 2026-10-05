@@ -1,0 +1,133 @@
+<!DOCTYPE html><html lang="en" data-theme="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Airwise - Air Quality DWM</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+:root{--bg:#e8eeea;--card:rgba(255,255,255,.72);--ink:#16211f;--mut:#51625e;--line:#cfdad5;--acc:#1f6f6b;--side:#16302d}
+[data-theme=dark]{--bg:#0f1816;--card:rgba(30,46,43,.75);--ink:#e6efec;--mut:#9bb0aa;--line:#2c4540;--acc:#4fb3a9;--side:#0a1211}
+*{box-sizing:border-box}html,body{margin:0;overflow-x:hidden}
+body{font-family:"Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--ink);display:flex;min-height:100vh}
+aside{width:210px;background:var(--side);color:#d6e5e1;padding:20px 12px;position:sticky;top:0;height:100vh;flex-shrink:0}
+aside h2{margin:0 8px 20px;font-size:20px}aside a{display:block;padding:10px 12px;border-radius:8px;color:#b4c9c4;cursor:pointer;margin-bottom:2px;font-size:14px}
+aside a:hover{background:rgba(255,255,255,.08)}aside a.on{background:var(--acc);color:#fff}
+main{flex:1;min-width:0;padding:20px 24px}
+.top{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:18px}.top h1{font-size:22px;margin:0;flex:1}
+select,input,button{font:inherit;padding:8px 10px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink)}
+button.p{background:var(--acc);color:#fff;border:0;cursor:pointer}button.p:hover{opacity:.9}
+.grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin-bottom:14px}
+.g2{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));margin-bottom:14px}
+.card{background:var(--card);backdrop-filter:blur(10px);border:1px solid var(--line);border-radius:12px;padding:16px;min-width:0}
+.card h3{margin:0 0 10px;font-size:14px;color:var(--mut);font-weight:600}.num{font-size:28px;font-weight:700}.num small{font-size:13px;color:var(--mut);font-weight:400}
+.badge{display:inline-block;padding:2px 10px;border-radius:99px;color:#fff;font-size:12px}
+.empty{grid-column:1/-1;text-align:center;padding:28px}.empty b{display:block;margin-bottom:6px}.pg{display:none}.pg.on{display:block}canvas{max-height:270px}#map{height:360px;border-radius:10px}
+.tw{overflow-x:auto}table{border-collapse:collapse;width:100%;font-size:13px}th,td{padding:7px 10px;border-bottom:1px solid var(--line);text-align:left}
+pre{background:rgba(0,0,0,.06);padding:12px;border-radius:8px;overflow:auto;font-size:12px;max-height:300px}
+.flow{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:8px 0}.flow span{padding:8px 12px;border:1px solid var(--acc);border-radius:8px;font-size:13px}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:center}
+.row label{font-size:12px;color:var(--mut)}#toast{position:fixed;right:18px;bottom:18px;background:var(--side);color:#fff;padding:12px 16px;border-radius:8px;opacity:0;transition:.3s;pointer-events:none;max-width:320px}
+#toast.on{opacity:1}.spin{display:none;width:16px;height:16px;border:2px solid var(--line);border-top-color:var(--acc);border-radius:50%;animation:s .8s linear infinite}
+@keyframes s{to{transform:rotate(360deg)}}
+@media(max-width:760px){body{flex-direction:column}aside{width:100%;height:auto;position:static;display:flex;overflow-x:auto;padding:10px}aside h2{display:none}aside a{white-space:nowrap}}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style></head><body>
+<aside><h2>Airwise</h2>
+<a data-p="dash" class="on">Dashboard</a><a data-p="wh">Data Warehouse</a><a data-p="etl">ETL Pipeline</a><a data-p="olap">OLAP</a><a data-p="mine">Data Mining</a><a data-p="pred">Prediction</a><a href="/logout">Sign out</a></aside>
+<main>
+<div class="top"><h1 id="title">Air quality overview</h1><select id="fc"><option value="">All cities</option></select>
+<select id="fk"><option value="">All categories</option><option>Good</option><option>Moderate</option><option>Poor</option><option>Very Poor</option><option>Severe</option></select>
+<input type="date" id="fs" title="From"><input type="date" id="fe" title="To"><button class="p" id="apply">Apply</button><button id="theme">Dark mode</button><span class="badge" id="src" style="background:var(--acc)" title="Active data source">Data source: ...</span><span class="spin" id="spin"></span></div>
+
+<section class="pg on" id="dash">
+<div class="grid" id="cards"></div>
+<div class="g2"><div class="card"><h3>AQI trend (last 90 days)</h3><canvas id="c1"></canvas></div><div class="card"><h3>Average pollutant levels</h3><canvas id="c2"></canvas></div></div>
+<div class="g2"><div class="card"><h3>AQI category distribution</h3><canvas id="c3"></canvas></div><div class="card"><h3>City comparison (average AQI)</h3><canvas id="c4"></canvas></div></div>
+<div class="card" style="margin-bottom:14px"><h3>Monthly AQI</h3><canvas id="c5"></canvas></div>
+<div class="card"><h3>Latest AQI by city</h3><div id="map"></div></div>
+</section>
+
+<section class="pg" id="wh">
+<div class="card"><h3>Pipeline</h3><div class="flow"><span>Data sources</span>&rarr;<span>ETL</span>&rarr;<span>Data warehouse</span>&rarr;<span>Star schema</span>&rarr;<span>OLAP</span>&rarr;<span>Data mining</span>&rarr;<span>Prediction</span>&rarr;<span>Dashboard</span></div></div><br>
+<div class="card"><h3>Star schema</h3><svg viewBox="0 0 760 360" width="100%" style="max-width:760px" font-family="Segoe UI" font-size="12">
+<g stroke="var(--acc)" stroke-width="2"><line x1="380" y1="150" x2="120" y2="70"/><line x1="380" y1="150" x2="640" y2="70"/><line x1="380" y1="210" x2="380" y2="300"/></g>
+<g fill="var(--card)" stroke="var(--acc)" stroke-width="2"><rect x="270" y="110" width="220" height="140" rx="8"/><rect x="20" y="20" width="200" height="100" rx="8"/><rect x="540" y="20" width="200" height="100" rx="8"/><rect x="270" y="290" width="220" height="60" rx="8"/></g>
+<g fill="var(--ink)"><text x="285" y="132" font-weight="700">fact_air_quality</text><text x="285" y="152">measurement_id (PK)</text><text x="285" y="168">date_id, location_id, pollutant_id (FK)</text><text x="285" y="184">temperature, humidity</text><text x="285" y="200">pm25, pm10, co, no2, so2, o3</text><text x="285" y="216">aqi</text>
+<text x="32" y="42" font-weight="700">dim_date</text><text x="32" y="60">date_id, full_date, day, month</text><text x="32" y="76">month_name, quarter, year</text>
+<text x="552" y="42" font-weight="700">dim_location</text><text x="552" y="60">location_id, city, state</text><text x="552" y="76">country, latitude, longitude</text>
+<text x="285" y="312" font-weight="700">dim_pollutant</text><text x="285" y="330">pollutant_id, name, unit, description</text></g></svg></div>
+</section>
+
+<section class="pg" id="etl"><div class="card"><h3>Extract, transform, load</h3>
+<div class="flow"><span>Raw CSV</span>&rarr;<span>Extract</span>&rarr;<span>Transform</span>&rarr;<span>Clean</span>&rarr;<span>Load</span>&rarr;<span>Warehouse</span></div>
+<div class="row"><input type="file" id="csv" accept=".csv"><button class="p" id="up">Run ETL</button></div>
+<p style="color:var(--mut);font-size:13px">Required columns: date, city, pm25, pm10, co, no2, so2, o3, temperature, humidity. AQI is calculated when missing.</p><div class="grid" id="etlstats"></div></div></section>
+
+<section class="pg" id="olap"><div class="card"><h3>OLAP operations</h3>
+<div class="row"><label>Measure</label><select id="om"><option value="aqi">AQI</option><option value="pm25">PM2.5</option><option value="pm10">PM10</option><option value="no2">NO2</option></select>
+<button class="p" data-o="rollup">Roll-up (month)</button><button class="p" data-o="rollupy">Roll-up (year)</button><button class="p" data-o="drill1">Drill-down: 2025 by month</button><button class="p" data-o="drill2">Drill-down: Jan 2025 by day</button></div>
+<div class="row"><label>Slice city</label><select id="os"></select><button class="p" data-o="slice">Slice</button>
+<label>Dice</label><select id="od1"></select><select id="od2"></select><select id="oy"><option>2025</option><option>2024</option></select><button class="p" data-o="dice">Dice</button></div>
+<canvas id="oc"></canvas><div class="tw" id="ot"></div></div></section>
+
+<section class="pg" id="mine"><div class="g2"><div class="card"><h3>K-means: group cities by pollution profile</h3>
+<div class="row"><label>K</label><select id="k"><option>2</option><option selected>3</option><option>4</option></select><button class="p" id="kmb">Cluster</button></div><canvas id="kc"></canvas><div id="kt"></div></div>
+<div class="card"><h3>Decision tree: predict AQI category</h3><button class="p" id="dtb">Train and evaluate</button><div id="dt"></div></div></div></section>
+
+<section class="pg" id="pred"><div class="card" style="max-width:640px"><h3>Predict AQI (linear regression)</h3><div class="grid" id="pf"></div>
+<button class="p" id="pb">Predict</button><div style="text-align:center"><svg viewBox="0 0 220 130" width="260"><path d="M20 110A90 90 0 0 1 200 110" fill="none" stroke="var(--line)" stroke-width="16" stroke-linecap="round"/>
+<path id="arc" d="M20 110A90 90 0 0 1 200 110" fill="none" stroke="#2e9e5b" stroke-width="16" stroke-linecap="round" stroke-dasharray="283" stroke-dashoffset="283" style="transition:stroke-dashoffset 1s,stroke .6s"/>
+<text id="gv" x="110" y="100" text-anchor="middle" font-size="34" font-weight="700" fill="var(--ink)">--</text></svg><div id="gc"></div></div></div></section>
+</main><div id="toast"></div>
+<script>
+const $=id=>document.getElementById(id),COL={Good:'#2e9e5b',Moderate:'#d4b106',Poor:'#e8870e','Very Poor':'#d13b2e',Severe:'#7a1414'};
+const MN=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];let ch={},map,mk=[];
+function toast(m){const t=$('toast');t.textContent=m;t.classList.add('on');setTimeout(()=>t.classList.remove('on'),3500)}
+async function get(u,o){$('spin').style.display='inline-block';try{const r=await fetch(u,o);const j=await r.json();if(!r.ok)throw new Error(j.error||'Request failed');return j}catch(e){toast(e.message);throw e}finally{$('spin').style.display='none'}}
+function mkc(id,type,labels,sets,opt={}){if(ch[id])ch[id].destroy();ch[id]=new Chart($(id),{type,data:{labels,datasets:sets},options:Object.assign({responsive:true,plugins:{legend:{display:sets.length>1||type=='doughnut'}}},opt)})}
+function qs(){const p=new URLSearchParams();[['city','fc'],['cat','fk'],['start','fs'],['end','fe']].forEach(([k,i])=>$(i).value&&p.set(k,$(i).value));return p.toString()}
+const fmt=v=>typeof v=='number'&&Number.isInteger(v)&&v>1999&&v<2100?String(v):(typeof v=='number'&&Number.isInteger(v)?v:v);
+async function dash(){const q=qs();
+ let s;try{s=await get('/api/summary?'+q)}catch(e){Object.values(ch).forEach(c=>c.destroy());ch={};$('cards').innerHTML=`<div class="card empty"><b>No data to show</b>${e.message}</div>`;return}
+ $('src').textContent='Data source: '+s.source;const units={pm25:'µg/m³',pm10:'µg/m³',co:'mg/m³',no2:'µg/m³',so2:'µg/m³',o3:'µg/m³',temperature:'°C',humidity:'%'};
+ let h=`<div class="card"><h3>AQI on ${s.date}</h3><div class="num" data-v="${s.aqi}">0</div><span class="badge" style="background:${COL[s.category]}">${s.category}</span></div>`;
+ for(const k in units)h+=`<div class="card"><h3>${k.toUpperCase().replace('TEMPERATURE','Temperature').replace('HUMIDITY','Humidity')}</h3><div class="num" data-v="${s[k]}">0</div><small>${units[k]}</small></div>`;
+ $('cards').innerHTML=h;document.querySelectorAll('.num[data-v]').forEach(e=>{const t=+e.dataset.v,t0=performance.now();(function f(n){const x=Math.min((n-t0)/700,1);e.textContent=(t*x).toFixed(t%1?1:0);if(x<1)requestAnimationFrame(f)})(t0)});
+ $('cards').insertAdjacentHTML('beforeend',`<div class="card"><h3>Data source</h3><small>${s.source}<br>${s.records} records in this view</small></div>`);
+ const c=await get('/api/charts?'+q),dk=document.documentElement.dataset.theme=='dark';Chart.defaults.color=dk?'#9bb0aa':'#51625e';
+ mkc('c1','line',c.trend.x,[{label:'AQI',data:c.trend.y,borderColor:'#1f6f6b',tension:.3,pointRadius:0}]);
+ mkc('c2','bar',c.pollutants.x,[{label:'Mean',data:c.pollutants.y,backgroundColor:'#1f6f6b'}]);
+ mkc('c3','doughnut',c.categories.x,[{data:c.categories.y,backgroundColor:Object.values(COL)}]);
+ mkc('c4','bar',c.cities.x,[{label:'Avg AQI',data:c.cities.y,backgroundColor:'#c98a2b'}]);
+ mkc('c5','line',c.monthly.x,[{label:'AQI',data:c.monthly.y,borderColor:'#7a1414',tension:.3}]);
+ const cs=await get('/api/cities');if(!map){map=L.map('map').setView([22,79],5);L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap'}).addTo(map)}
+ mk.forEach(m=>m.remove());mk=cs.map(d=>L.circleMarker([d.latitude,d.longitude],{radius:13,color:'#fff',weight:2,fillColor:COL[d.category],fillOpacity:.95}).addTo(map).bindPopup(`<b>${d.city}</b><br>AQI ${d.aqi} (${d.category})<br>PM2.5 ${d.pm25} · PM10 ${d.pm10}<br>${d.temperature}°C, ${d.humidity}% humidity`))}
+function table(j){return '<table><tr>'+j.columns.map(c=>`<th>${c}</th>`).join('')+'</tr>'+j.rows.map(r=>'<tr>'+r.map(v=>`<td>${typeof v=='number'&&Number.isInteger(v)?v:v}</td>`).join('')+'</tr>').join('')+'</table>'}
+function oq(o){const m='&metric='+$('om').value;return {rollup:'/api/olap/rollup?level=month'+m,rollupy:'/api/olap/rollup?level=year'+m,drill1:'/api/olap/drilldown?year=2025'+m,drill2:'/api/olap/drilldown?year=2025&month=1'+m,
+ slice:'/api/olap/slice?city='+$('os').value+m,dice:`/api/olap/dice?cities=${$('od1').value},${$('od2').value}&year=${$('oy').value}`+m}[o]}
+async function olap(o){const j=await get(oq(o));const last=j.columns.length-1;
+ const lbl=j.rows.map(r=>r.slice(0,last).map(v=>typeof v=='number'&&v<=12&&j.columns.includes('month')?MN[v-1]||v:v).join(' '));
+ if(j.columns.includes('city')){const cities=[...new Set(j.rows.map(r=>r[0]))];mkc('oc','line',[...new Set(j.rows.map(r=>MN[r[1]-1]))],cities.map((c,i)=>({label:c,data:j.rows.filter(r=>r[0]==c).map(r=>r[2]),borderColor:['#1f6f6b','#c98a2b'][i],tension:.3})))}
+ else mkc('oc','bar',lbl,[{label:j.measure.toUpperCase(),data:j.rows.map(r=>r[last]),backgroundColor:'#1f6f6b'}]);$('ot').innerHTML=table(j)}
+async function kmeans(){const j=await get('/api/mining/clustering?k='+$('k').value);const cc=['#2e9e5b','#e8870e','#d13b2e','#7a1414'];
+ mkc('kc','scatter',null,j.clusters.map(c=>({label:'Cluster '+c.id,backgroundColor:cc[c.id],pointRadius:7,data:j.points.filter(p=>p.cluster==c.id).map(p=>({x:p.pm25,y:p.aqi,city:p.city}))})),{plugins:{tooltip:{callbacks:{label:c=>c.raw.city}}},scales:{x:{title:{display:true,text:'PM2.5'}},y:{title:{display:true,text:'AQI'}}}});
+ $('kt').innerHTML='<div class="tw"><table><tr><th>Cluster</th><th>Meaning</th><th>Avg AQI</th><th>Cities</th></tr>'+j.clusters.map(c=>`<tr><td>${c.id}</td><td>${c.label}</td><td>${c.avg_aqi}</td><td>${c.cities.join(', ')}</td></tr>`).join('')+'</table></div>'}
+async function dtree(){const j=await get('/api/mining/classification');$('dt').innerHTML=`<div class="grid"><div>Accuracy<div class="num">${(j.accuracy*100).toFixed(1)}%</div></div><div>Precision<div class="num">${j.precision}</div></div><div>Recall<div class="num">${j.recall}</div></div><div>F1<div class="num">${j.f1}</div></div></div>
+<h3>Confusion matrix</h3><div class="tw"><table><tr><th></th>${j.labels.map(l=>`<th>${l}</th>`).join('')}</tr>${j.matrix.map((r,i)=>`<tr><th>${j.labels[i]}</th>${r.map(v=>`<td>${v}</td>`).join('')}</tr>`).join('')}</table></div><h3>Tree rules</h3><pre>${j.tree}</pre>`}
+const PF=[['pm25',78],['pm10',126],['co',1.8],['no2',40],['so2',10],['o3',45],['temperature',29],['humidity',60]];
+$('pf').innerHTML=PF.map(([k,v])=>`<div><label style="font-size:12px;color:var(--mut)">${k}</label><input id="f_${k}" type="number" step="any" value="${v}" style="width:100%"></div>`).join('');
+$('pb').onclick=async()=>{const b={};PF.forEach(([k])=>b[k]=$('f_'+k).value);const j=await get('/api/mining/prediction',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});
+ $('arc').style.stroke=COL[j.category];$('arc').style.strokeDashoffset=283-283*Math.min(j.aqi,400)/400;$('gv').textContent=j.aqi;$('gc').innerHTML=`<span class="badge" style="background:${COL[j.category]}">${j.category}</span><br><small>Model R² on held-out data: ${j.r2}</small>`};
+$('up').onclick=async()=>{const f=$('csv').files[0];if(!f)return toast('Choose a CSV file first.');const fd=new FormData();fd.append('file',f);const j=await get('/api/etl/upload',{method:'POST',body:fd});
+ $('etlstats').innerHTML=[['Extracted',j.extracted],['Cleaned',j.cleaned],['Transformed',j.transformed],['Loaded',j.loaded],['Missing values handled',j.missing_handled],['Duplicates removed',j.duplicates_removed]].map(([a,b])=>`<div class="card"><h3>${a}</h3><div class="num">${b}</div></div>`).join('')+`<div class="card"><h3>Target</h3>${j.target}</div>`;toast('ETL finished.')};
+document.querySelectorAll('aside a[data-p]').forEach(a=>a.onclick=()=>{document.querySelectorAll('.pg,aside a').forEach(e=>e.classList.remove('on'));$(a.dataset.p).classList.add('on');a.classList.add('on');$('title').textContent=a.textContent;if(a.dataset.p=='dash'&&map)setTimeout(()=>map.invalidateSize(),50)});
+document.querySelectorAll('[data-o]').forEach(b=>b.onclick=()=>olap(b.dataset.o));
+$('apply').onclick=dash;$('kmb').onclick=kmeans;$('dtb').onclick=dtree;
+$('theme').onclick=()=>{const d=document.documentElement,n=d.dataset.theme=='dark'?'light':'dark';d.dataset.theme=n;try{localStorage.setItem('theme',n)}catch(e){}$('theme').textContent=n=='dark'?'Light mode':'Dark mode';dash()};
+try{const t=localStorage.getItem('theme');if(t){document.documentElement.dataset.theme=t;$('theme').textContent=t=='dark'?'Light mode':'Dark mode'}}catch(e){}
+get('/api/filters').then(f=>{
+ f.cities.forEach(c=>{['fc','os','od1','od2'].forEach(id=>$(id).insertAdjacentHTML('beforeend',`<option value="${c}">${c}</option>`))});
+ if(f.cities.length>1)$('od2').selectedIndex=1;
+ [['fs',f.min_date],['fe',f.max_date]].forEach(([id,v])=>{$(id).min=f.min_date;$(id).max=f.max_date;$(id).value=v});
+ const y=[...new Set([f.min_date.slice(0,4),f.max_date.slice(0,4)])];$('oy').innerHTML=y.reverse().map(v=>`<option>${v}</option>`).join('');
+ $('src').textContent='Data source: '+f.source}).then(()=>{dash();kmeans()}).catch(()=>{});
+</script></body></html>
