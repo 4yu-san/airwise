@@ -29,6 +29,7 @@ USER_HASH = generate_password_hash(os.getenv("USER_PASSWORD", "user123"), method
 FEATURES = ["pm25", "pm10", "co", "no2", "so2", "o3", "temperature", "humidity"]
 CATS = ["Good", "Moderate", "Poor", "Very Poor", "Severe"]
 MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
+MEASURES = {"aqi": "AQI", "pm25": "PM2.5", "pm10": "PM10", "no2": "NO2", "so2": "SO2", "o3": "O3", "co": "CO"}
 _cache = {}
 _state = {"source_mode": "auto", "fallback_reason": None, "loaded_at": None, "last_etl": None}   # admin-visible runtime state
 
@@ -115,6 +116,11 @@ def parse_date(value, label):
     if pd.isna(d):
         raise ValueError(f"{label} date '{value}' is not valid. Use YYYY-MM-DD.")
     return d.normalize()
+
+def measure():
+    m = request.args.get("measure", "aqi").strip().lower() or "aqi"
+    if m not in MEASURES: raise ValueError(f"Unknown measure '{m}'. Choose one of: {', '.join(MEASURES)}.")
+    return m
 
 def filtered():
     df = load_df()
@@ -204,21 +210,26 @@ def summary():
 @app.route("/api/cities")
 @api
 def cities():
-    df = load_df(); last = df[df.date == df.date.max()]
-    out = last.groupby(["city", "latitude", "longitude"])[["aqi", "pm25", "pm10", "temperature", "humidity"]].mean().round(1).reset_index()
+    m = measure(); df = load_df(); last = df[df.date == df.date.max()]
+    out = last.groupby(["city", "latitude", "longitude"])[["aqi", "pm25", "pm10", "no2", "so2", "o3", "co", "temperature", "humidity"]].mean().round(1).reset_index()
     out["category"] = category(out.aqi).astype(str)
+    out["value"] = out[m]
+    out["share"] = ((out[m] - out[m].min()) / (out[m].max() - out[m].min())).fillna(0).round(3) if len(out) > 1 else 0.0   # 0..1 position for non-AQI map colours
     return jsonify(out.to_dict("records"))
 
 @app.route("/api/charts")
 @api
 def charts():
-    df = filtered()
+    m = measure(); df = filtered()
     if df.empty: raise ValueError(empty_message())
-    t = df.groupby("date").aqi.mean().round(1).tail(90)
-    mo = df.groupby(["year", "month"]).aqi.mean().round(1)
+    t = df.groupby("date")[m].mean().round(2)
+    ranged = bool(request.args.get("start") or request.args.get("end"))
+    if not ranged: t = t.tail(90)   # default view: most recent 90 days; an explicit date range is shown in full
+    trend_label = f"{t.index.min().date()} to {t.index.max().date()}" if ranged else "last 90 days"
+    mo = df.groupby(["year", "month"])[m].mean().round(2)
     cat = df.category.value_counts().reindex(CATS, fill_value=0)
-    city = load_df().groupby("city").aqi.mean().round(1).sort_values(ascending=False)
-    return jsonify(trend={"x": [str(d.date()) for d in t.index], "y": t.tolist()},
+    city = load_df().groupby("city")[m].mean().round(2).sort_values(ascending=False)
+    return jsonify(measure=MEASURES[m], trend={"label": trend_label, "x": [str(d.date()) for d in t.index], "y": t.tolist()},
         pollutants={"x": ["PM2.5", "PM10", "CO", "NO2", "SO2", "O3"], "y": df[["pm25","pm10","co","no2","so2","o3"]].mean().round(1).tolist()},
         categories={"x": CATS, "y": cat.tolist()}, cities={"x": city.index.tolist(), "y": city.tolist()},
         monthly={"x": [f"{MONTHS[m-1]} {y}" for y, m in mo.index], "y": mo.tolist()})
