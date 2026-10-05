@@ -33,7 +33,7 @@ pre{background:rgba(0,0,0,.06);padding:12px;border-radius:8px;overflow:auto;font
 {% if role != 'admin' %}[data-p=etl],#etl,#adm{display:none!important}{% endif %}
 </style></head><body>
 <aside><h2>Airwise</h2>
-<a data-p="dash" class="on">Dashboard</a><a data-p="wh">Data Warehouse</a><a data-p="etl">ETL Pipeline</a><a data-p="olap">OLAP</a><a data-p="mine">Data Mining</a><a data-p="pred">Prediction</a>{% if role == 'admin' %}<a data-p="adm">Admin</a>{% endif %}<a href="/logout">Sign out</a></aside>
+<a data-p="dash" class="on">Dashboard</a><a data-p="etl">ETL Pipeline</a><a data-p="olap">OLAP</a><a data-p="mine">Data Mining</a><a data-p="pred">Prediction</a>{% if role == 'admin' %}<a data-p="adm">Admin</a>{% endif %}<a href="/logout">Sign out</a></aside>
 <main>
 <div class="top"><h1 id="title">Air quality overview</h1><select id="fc"><option value="">All cities</option></select>
 <select id="fk"><option value="">All categories</option><option>Good</option><option>Moderate</option><option>Poor</option><option>Very Poor</option><option>Severe</option></select>
@@ -45,17 +45,6 @@ pre{background:rgba(0,0,0,.06);padding:12px;border-radius:8px;overflow:auto;font
 <div class="g2"><div class="card"><h3>AQI category distribution</h3><canvas id="c3"></canvas></div><div class="card"><h3>City comparison (average AQI)</h3><canvas id="c4"></canvas></div></div>
 <div class="card" style="margin-bottom:14px"><h3>Monthly AQI</h3><canvas id="c5"></canvas></div>
 <div class="card"><h3>Latest AQI by city</h3><div id="map"></div></div>
-</section>
-
-<section class="pg" id="wh">
-<div class="card"><h3>Pipeline</h3><div class="flow"><span>Data sources</span>&rarr;<span>ETL</span>&rarr;<span>Data warehouse</span>&rarr;<span>Star schema</span>&rarr;<span>OLAP</span>&rarr;<span>Data mining</span>&rarr;<span>Prediction</span>&rarr;<span>Dashboard</span></div></div><br>
-<div class="card"><h3>Star schema</h3><svg viewBox="0 0 760 360" width="100%" style="max-width:760px" font-family="Segoe UI" font-size="12">
-<g stroke="var(--acc)" stroke-width="2"><line x1="380" y1="150" x2="120" y2="70"/><line x1="380" y1="150" x2="640" y2="70"/><line x1="380" y1="210" x2="380" y2="300"/></g>
-<g fill="var(--card)" stroke="var(--acc)" stroke-width="2"><rect x="270" y="110" width="220" height="140" rx="8"/><rect x="20" y="20" width="200" height="100" rx="8"/><rect x="540" y="20" width="200" height="100" rx="8"/><rect x="270" y="290" width="220" height="60" rx="8"/></g>
-<g fill="var(--ink)"><text x="285" y="132" font-weight="700">fact_air_quality</text><text x="285" y="152">measurement_id (PK)</text><text x="285" y="168">date_id, location_id, pollutant_id (FK)</text><text x="285" y="184">temperature, humidity</text><text x="285" y="200">pm25, pm10, co, no2, so2, o3</text><text x="285" y="216">aqi</text>
-<text x="32" y="42" font-weight="700">dim_date</text><text x="32" y="60">date_id, full_date, day, month</text><text x="32" y="76">month_name, quarter, year</text>
-<text x="552" y="42" font-weight="700">dim_location</text><text x="552" y="60">location_id, city, state</text><text x="552" y="76">country, latitude, longitude</text>
-<text x="285" y="312" font-weight="700">dim_pollutant</text><text x="285" y="330">pollutant_id, name, unit, description</text></g></svg></div>
 </section>
 
 <section class="pg" id="etl"><div class="card"><h3>Extract, transform, load</h3>
