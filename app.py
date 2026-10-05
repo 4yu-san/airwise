@@ -5,9 +5,13 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import StandardScaler
 from sklearn.tree import DecisionTreeClassifier, export_text
-from sklearn.linear_model import LinearRegression
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, precision_recall_fscore_support, confusion_matrix, r2_score
+from sklearn.linear_model import LinearRegression, Ridge, Lasso
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
+from sklearn.feature_selection import mutual_info_regression
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import PolynomialFeatures
+from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.metrics import accuracy_score, precision_recall_fscore_support, confusion_matrix, r2_score, mean_squared_error, mean_absolute_error
 from generate_dataset import compute_aqi, category
 try:
     from dotenv import load_dotenv; load_dotenv()
@@ -288,18 +292,65 @@ def classification():
         tree=export_text(tree, feature_names=FEATURES, decimals=1),
         importance=sorted(zip(FEATURES, tree.feature_importances_.round(3).tolist()), key=lambda t: -t[1])[:5])
 
+REG_MODELS = {
+    "Linear Regression": lambda: make_pipeline(StandardScaler(), LinearRegression()),
+    "Ridge Regression": lambda: make_pipeline(StandardScaler(), Ridge(alpha=1.0)),
+    "Lasso Regression": lambda: make_pipeline(StandardScaler(), Lasso(alpha=0.05, max_iter=5000)),
+    "Polynomial (degree 2)": lambda: make_pipeline(StandardScaler(), PolynomialFeatures(2, include_bias=False), Ridge(alpha=1.0)),
+    "Random Forest": lambda: RandomForestRegressor(n_estimators=80, max_depth=10, random_state=7, n_jobs=-1),
+    "Gradient Boosting": lambda: GradientBoostingRegressor(n_estimators=120, max_depth=3, random_state=7),
+}
+MAX_FEATURES, PARSIMONY = 4, 1.02   # a smaller feature set wins if its CV error is within 2% of the best set
+
+def regression_study():
+    """Ranks features, then for every model picks the smallest feature set that is nearly as accurate as the best
+    (5-fold CV on the training split) and scores it on a held-out test split. The best model by CV error wins."""
+    if "reg" in _cache:
+        return _cache["reg"]
+    df = load_df()
+    if len(df) < 50: raise ValueError("At least 50 records are needed to compare regression models.")
+    Xtr, Xte, ytr, yte = train_test_split(df[FEATURES], df.aqi, test_size=0.25, random_state=7)
+    mi = mutual_info_regression(Xtr, ytr, random_state=7)
+    ranked = [f for f, _ in sorted(zip(FEATURES, mi), key=lambda t: -t[1])]
+    rows = []
+    for name, make in REG_MODELS.items():
+        best = None
+        for k in range(1, MAX_FEATURES + 1):
+            cols = ranked[:k]
+            rmse = -cross_val_score(make(), Xtr[cols], ytr, cv=5, scoring="neg_root_mean_squared_error").mean()
+            if best is None or rmse < best[1] / PARSIMONY:   # only replace when clearly better than the smaller set
+                best = (cols, rmse)
+        cols, cv_rmse = best
+        model = make().fit(Xtr[cols], ytr); pred = model.predict(Xte[cols])
+        rows.append(dict(model=name, features=cols, cv_rmse=round(cv_rmse, 2), r2=round(r2_score(yte, pred), 4),
+                         rmse=round(mean_squared_error(yte, pred) ** 0.5, 2), mae=round(mean_absolute_error(yte, pred), 2), _fit=model))
+    rows.sort(key=lambda r: r["cv_rmse"])
+    winner = rows[0]
+    study = dict(rows=rows, winner=winner, ranking=[(f, round(float(m), 3)) for f, m in sorted(zip(FEATURES, mi), key=lambda t: -t[1])],
+                 defaults={f: round(float(df[f].median()), 1) for f in FEATURES}, test_size=len(Xte), train_size=len(Xtr))
+    _cache["reg"] = study
+    log.info("Regression study: winner=%s features=%s r2=%s", winner["model"], winner["features"], winner["r2"])
+    return study
+
+@app.route("/api/mining/regression")
+@api
+def regression():
+    st = regression_study(); w = st["winner"]
+    return jsonify(models=[{k: v for k, v in r.items() if k != "_fit"} for r in st["rows"]], best=w["model"], features=w["features"],
+                   defaults={f: st["defaults"][f] for f in w["features"]}, ranking=st["ranking"],
+                   train_size=st["train_size"], test_size=st["test_size"])
+
 @app.route("/api/mining/prediction", methods=["POST"])
 @api
 def prediction():
-    _, reg, Xte, _, df = models(); data = request.get_json(silent=True) or {}
+    w = regression_study()["winner"]; data = request.get_json(silent=True) or {}
     try:
-        x = [float(data[f]) for f in FEATURES]
+        x = [float(data[f]) for f in w["features"]]
     except (KeyError, TypeError, ValueError):
         raise ValueError("Enter a number for every field.")
-    if any(v < 0 for v in x) or x[0] > 1000 or x[1] > 1500: raise ValueError("Values are outside a realistic range.")
-    aqi = int(np.clip(round(reg.predict(pd.DataFrame([x], columns=FEATURES))[0]), 0, 500))
-    return jsonify(aqi=aqi, category=str(category(np.array([aqi]))[0]),
-                   r2=round(r2_score(df.aqi.loc[Xte.index], reg.predict(Xte)), 3))
+    if any(v < 0 for v in x) or any(v > 1500 for v in x): raise ValueError("Values are outside a realistic range.")
+    aqi = int(np.clip(round(w["_fit"].predict(pd.DataFrame([x], columns=w["features"]))[0]), 0, 500))
+    return jsonify(aqi=aqi, category=str(category(np.array([aqi]))[0]), r2=w["r2"], model=w["model"])
 
 @app.route("/api/etl/upload", methods=["POST"])
 @admin_api

@@ -70,10 +70,11 @@ pre{background:rgba(0,0,0,.06);padding:12px;border-radius:8px;overflow:auto;font
 <div class="row"><label>K</label><select id="k"><option>2</option><option selected>3</option><option>4</option></select><button class="p" id="kmb">Cluster</button></div><canvas id="kc"></canvas><div id="kt"></div></div>
 <div class="card"><h3>Decision tree: predict AQI category</h3><button class="p" id="dtb">Train and evaluate</button><div id="dt"></div></div></div></section>
 
-<section class="pg" id="pred"><div class="card" style="max-width:640px"><h3>Predict AQI (linear regression)</h3><div class="grid" id="pf"></div>
+<section class="pg" id="pred"><div class="g2"><div class="card"><h3>Predict AQI</h3><p id="pbest" style="color:var(--mut);font-size:13px">Comparing regression models...</p><div class="grid" id="pf"></div>
 <button class="p" id="pb">Predict</button><div style="text-align:center"><svg viewBox="0 0 220 130" width="260"><path d="M20 110A90 90 0 0 1 200 110" fill="none" stroke="var(--line)" stroke-width="16" stroke-linecap="round"/>
 <path id="arc" d="M20 110A90 90 0 0 1 200 110" fill="none" stroke="#2e9e5b" stroke-width="16" stroke-linecap="round" stroke-dasharray="283" stroke-dashoffset="283" style="transition:stroke-dashoffset 1s,stroke .6s"/>
-<text id="gv" x="110" y="100" text-anchor="middle" font-size="34" font-weight="700" fill="var(--ink)">--</text></svg><div id="gc"></div></div></div></section>
+<text id="gv" x="110" y="100" text-anchor="middle" font-size="34" font-weight="700" fill="var(--ink)">--</text></svg><div id="gc"></div></div></div>
+<div class="card"><h3>Regression comparison</h3><div id="rt" style="overflow-x:auto"></div><p id="rn" style="color:var(--mut);font-size:13px"></p></div></div></section>
 </main><div id="toast"></div>
 <script>
 const $=id=>document.getElementById(id),COL={Good:'#2e9e5b',Moderate:'#d4b106',Poor:'#e8870e','Very Poor':'#d13b2e',Severe:'#7a1414'};
@@ -110,10 +111,14 @@ async function kmeans(){const j=await get('/api/mining/clustering?k='+$('k').val
  $('kt').innerHTML='<div class="tw"><table><tr><th>Cluster</th><th>Meaning</th><th>Avg AQI</th><th>Cities</th></tr>'+j.clusters.map(c=>`<tr><td>${c.id}</td><td>${c.label}</td><td>${c.avg_aqi}</td><td>${c.cities.join(', ')}</td></tr>`).join('')+'</table></div>'}
 async function dtree(){const j=await get('/api/mining/classification');$('dt').innerHTML=`<div class="grid"><div>Accuracy<div class="num">${(j.accuracy*100).toFixed(1)}%</div></div><div>Precision<div class="num">${j.precision}</div></div><div>Recall<div class="num">${j.recall}</div></div><div>F1<div class="num">${j.f1}</div></div></div>
 <h3>Confusion matrix</h3><div class="tw"><table><tr><th></th>${j.labels.map(l=>`<th>${l}</th>`).join('')}</tr>${j.matrix.map((r,i)=>`<tr><th>${j.labels[i]}</th>${r.map(v=>`<td>${v}</td>`).join('')}</tr>`).join('')}</table></div><h3>Tree rules</h3><pre>${j.tree}</pre>`}
-const PF=[['pm25',78],['pm10',126],['co',1.8],['no2',40],['so2',10],['o3',45],['temperature',29],['humidity',60]];
-$('pf').innerHTML=PF.map(([k,v])=>`<div><label style="font-size:12px;color:var(--mut)">${k}</label><input id="f_${k}" type="number" step="any" value="${v}" style="width:100%"></div>`).join('');
-$('pb').onclick=async()=>{const b={};PF.forEach(([k])=>b[k]=$('f_'+k).value);const j=await get('/api/mining/prediction',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});
- $('arc').style.stroke=COL[j.category];$('arc').style.strokeDashoffset=283-283*Math.min(j.aqi,400)/400;$('gv').textContent=j.aqi;$('gc').innerHTML=`<span class="badge" style="background:${COL[j.category]}">${j.category}</span><br><small>Model R² on held-out data: ${j.r2}</small>`};
+let PFS=[];
+async function regs(){const j=await get('/api/mining/regression');if(!j)return;PFS=j.features;
+ $('pf').innerHTML=PFS.map(k=>`<div><label style="font-size:12px;color:var(--mut)">${k}</label><input id="f_${k}" type="number" step="any" value="${j.defaults[k]}" style="width:100%"></div>`).join('');
+ $('pbest').innerHTML=`Best model: <b>${j.best}</b> using ${PFS.length} inputs (${PFS.join(', ')}).`;
+ $('rt').innerHTML='<table><tr><th>Model</th><th>Inputs</th><th>CV RMSE</th><th>Test R²</th><th>Test RMSE</th><th>MAE</th></tr>'+j.models.map(m=>`<tr${m.model==j.best?' style="font-weight:700"':''}><td>${m.model}${m.model==j.best?' (best)':''}</td><td>${m.features.join(', ')}</td><td>${m.cv_rmse}</td><td>${m.r2}</td><td>${m.rmse}</td><td>${m.mae}</td></tr>`).join('')+'</table>';
+ $('rn').textContent=`Feature ranking (mutual information): ${j.ranking.map(r=>r[0]+' '+r[1]).join(', ')}. Models trained on ${j.train_size} rows, scored on ${j.test_size} unseen rows. Each model uses the fewest inputs that keep its error within 2% of its best.`}
+$('pb').onclick=async()=>{const b={};PFS.forEach(k=>b[k]=$('f_'+k).value);const j=await get('/api/mining/prediction',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)});
+ $('arc').style.stroke=COL[j.category];$('arc').style.strokeDashoffset=283-283*Math.min(j.aqi,400)/400;$('gv').textContent=j.aqi;$('gc').innerHTML=`<span class="badge" style="background:${COL[j.category]}">${j.category}</span><br><small>${j.model}, R² on held-out data: ${j.r2}</small>`};
 $('up').onclick=async()=>{const f=$('csv').files[0];if(!f)return toast('Choose a CSV file first.');const fd=new FormData();fd.append('file',f);const j=await get('/api/etl/upload',{method:'POST',body:fd});
  $('etlstats').innerHTML=[['Extracted',j.extracted],['Cleaned',j.cleaned],['Transformed',j.transformed],['Loaded',j.loaded],['Missing values handled',j.missing_handled],['Duplicates removed',j.duplicates_removed]].map(([a,b])=>`<div class="card"><h3>${a}</h3><div class="num">${b}</div></div>`).join('')+`<div class="card"><h3>Target</h3>${j.target}</div>`;toast('ETL finished.')};
 async function admin(r){const j=await get(r?'/api/admin/reload':'/api/admin/status',r?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:r})}:undefined);if(!j)return;
@@ -122,7 +127,7 @@ async function admin(r){const j=await get(r?'/api/admin/reload':'/api/admin/stat
  const e=j.last_etl;$('admetl').textContent=e?`${e.file} by ${e.by} at ${e.at}: extracted ${e.extracted}, cleaned ${e.cleaned}, loaded ${e.loaded}, duplicates removed ${e.duplicates_removed}. Target: ${e.target}`:'No ETL run since the server started.';
  if(r){toast('Data reloaded from '+j.source+'.');if(typeof dash=='function')dash()}}
 if($('adm')){$('admauto').onclick=()=>admin('auto');$('admcsv').onclick=()=>admin('csv')}
-document.querySelectorAll('aside a[data-p]').forEach(a=>a.onclick=()=>{document.querySelectorAll('.pg,aside a').forEach(e=>e.classList.remove('on'));$(a.dataset.p).classList.add('on');a.classList.add('on');$('title').textContent=a.textContent;if(a.dataset.p=='adm')admin();if(a.dataset.p=='dash'&&map)setTimeout(()=>map.invalidateSize(),50)});
+document.querySelectorAll('aside a[data-p]').forEach(a=>a.onclick=()=>{document.querySelectorAll('.pg,aside a').forEach(e=>e.classList.remove('on'));$(a.dataset.p).classList.add('on');a.classList.add('on');$('title').textContent=a.textContent;if(a.dataset.p=='adm')admin();if(a.dataset.p=='pred'&&!PFS.length)regs();if(a.dataset.p=='dash'&&map)setTimeout(()=>map.invalidateSize(),50)});
 document.querySelectorAll('[data-o]').forEach(b=>b.onclick=()=>olap(b.dataset.o));
 $('apply').onclick=dash;$('kmb').onclick=kmeans;$('dtb').onclick=dtree;
 $('theme').onclick=()=>{const d=document.documentElement,n=d.dataset.theme=='dark'?'light':'dark';d.dataset.theme=n;try{localStorage.setItem('theme',n)}catch(e){}$('theme').textContent=n=='dark'?'Light mode':'Dark mode';dash()};
